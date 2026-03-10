@@ -40,7 +40,7 @@ jobs:
         if: ${{ env.YOUTUBE_TOKEN_JSON != '' }}
         env:
           YOUTUBE_TOKEN_FILE: secrets/token.json
-          YOUTUBE_PRIVACY_STATUS: unlisted
+          YOUTUBE_PRIVACY_STATUS: public
         run: python scripts/upload_youtube.py
 
       - name: Record posted fact
