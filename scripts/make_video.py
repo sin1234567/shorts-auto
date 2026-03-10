@@ -1,4 +1,5 @@
 import csv
+import json
 import random
 import subprocess
 from pathlib import Path
@@ -18,6 +19,7 @@ with open(DATA, encoding="utf-8") as f:
 
 fact = random.choice(facts)
 text = fact["title"]
+body = fact["body"]
 
 print("selected:", text)
 
@@ -38,3 +40,12 @@ subprocess.run(
     ],
     check=True,
 )
+
+metadata = {
+    "title": f"{text} #shorts",
+    "description": body,
+    "tags": ["shorts", "雑学"],
+}
+
+with open(OUT / "metadata.json", "w", encoding="utf-8") as f:
+    json.dump(metadata, f, ensure_ascii=False, indent=2)
