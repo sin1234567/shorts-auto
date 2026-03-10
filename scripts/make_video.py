@@ -44,15 +44,8 @@ TITLE_PATTERNS = [
 ]
 
 
-def escape_drawtext(value: str) -> str:
-    return (
-        value.replace("\\", r"\\\\")
-        .replace(":", r"\:")
-        .replace("'", r"\'")
-        .replace(",", r"\,")
-        .replace("%", r"\%")
-        .replace("\n", r"\n")
-    )
+def escape_path(value: str) -> str:
+    return value.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
 
 
 def load_facts() -> list[dict[str, str]]:
@@ -152,8 +145,20 @@ synthesize_voice(narration_text, voice_wav)
 audio_duration = get_media_duration(voice_wav)
 video_duration = max(55.0, min(59.0, audio_duration + 1.2))
 
-header_text = escape_drawtext("雑学スライム")
-title_text = escape_drawtext(wrap_text(f"今日の雑学\n{title}", 12))
+header_file = OUT / "header.txt"
+title_file = OUT / "title.txt"
+footer_file = OUT / "footer.txt"
+subfooter_file = OUT / "subfooter.txt"
+
+header_file.write_text("雑学スライム", encoding="utf-8")
+title_file.write_text(wrap_text(f"今日の雑学\n{title}", 12), encoding="utf-8")
+footer_file.write_text("1分で聞ける雑学ショート", encoding="utf-8")
+subfooter_file.write_text("雑学スライム", encoding="utf-8")
+
+header_path = escape_path(str(header_file))
+title_path = escape_path(str(title_file))
+footer_path = escape_path(str(footer_file))
+subfooter_path = escape_path(str(subfooter_file))
 
 section_filters = []
 start_time = 5.0
@@ -163,10 +168,12 @@ segment = usable_time / len(sections)
 for index, section in enumerate(sections):
     start = start_time + index * segment
     end = start_time + (index + 1) * segment - 0.5
-    escaped = escape_drawtext(wrap_text(section, 17))
+    section_file = OUT / f"section_{index + 1}.txt"
+    section_file.write_text(wrap_text(section, 17), encoding="utf-8")
+    section_path = escape_path(str(section_file))
     y = 760
     section_filters.append(
-        f"drawtext=fontfile='{FONT}':text='{escaped}':"
+        f"drawtext=fontfile='{FONT}':textfile='{section_path}':"
         "fontcolor=0xf8fafc:fontsize=46:line_spacing=18:"
         f"x=90:y={y}:enable='between(t,{start:.2f},{end:.2f})'"
     )
@@ -175,11 +182,11 @@ filter_parts = [
     "format=yuv420p",
     f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill",
     f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill",
-    f"drawtext=fontfile='{FONT}':text='{header_text}':fontcolor=white:fontsize=64:x=(w-text_w)/2:y=180",
-    f"drawtext=fontfile='{FONT}':text='{title_text}':fontcolor=white:fontsize=72:line_spacing=20:x=90:y=360",
+    f"drawtext=fontfile='{FONT}':textfile='{header_path}':fontcolor=white:fontsize=64:x=(w-text_w)/2:y=180",
+    f"drawtext=fontfile='{FONT}':textfile='{title_path}':fontcolor=white:fontsize=72:line_spacing=20:x=90:y=360",
     *section_filters,
-    "drawtext=fontfile='{FONT}':text='1分で聞ける雑学ショート':fontcolor=0xfcd34d:fontsize=38:x=(w-text_w)/2:y=1680",
-    "drawtext=fontfile='{FONT}':text='雑学スライム':fontcolor=0x94a3b8:fontsize=34:x=(w-text_w)/2:y=1760",
+    f"drawtext=fontfile='{FONT}':textfile='{footer_path}':fontcolor=0xfcd34d:fontsize=38:x=(w-text_w)/2:y=1680",
+    f"drawtext=fontfile='{FONT}':textfile='{subfooter_path}':fontcolor=0x94a3b8:fontsize=34:x=(w-text_w)/2:y=1760",
 ]
 filter_graph = ",".join(filter_parts)
 
