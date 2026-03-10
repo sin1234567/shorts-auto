@@ -70,7 +70,7 @@ filter_graph = (
     "fontcolor=white:fontsize=96:line_spacing=20:x=(w-text_w)/2:y=760,"
     f"drawtext=fontfile='{FONT}':text='{body_text}':"
     "fontcolor=0xfdba74:fontsize=54:line_spacing=16:x=(w-text_w)/2:y=1080,"
-    "drawtext=fontfile='{FONT}':text='毎日1本  雑学ショート':"
+    "drawtext=fontfile='{FONT}':text='雑学スライム':"
     "fontcolor=0x94a3b8:fontsize=42:x=(w-text_w)/2:y=1720"
 )
 
