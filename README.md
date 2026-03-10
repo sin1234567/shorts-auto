@@ -58,6 +58,7 @@ shorts-auto
 - 日本語音声 (`open_jtalk`)
 - 日本語テキスト
 - YouTube `unlisted` 投稿
+- ネタ在庫は `data/facts.csv` に100本超を保存
 
 ## 重複防止
 
