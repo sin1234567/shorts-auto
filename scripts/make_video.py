@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "facts.csv"
+POSTED = ROOT / "data" / "posted_facts.txt"
 OUT = ROOT / "out"
 OUT.mkdir(exist_ok=True)
 
@@ -26,12 +27,33 @@ def escape_drawtext(value: str) -> str:
     )
 
 
-with open(DATA, encoding="utf-8") as f:
-    facts = list(csv.DictReader(f))
+def load_facts() -> list[dict[str, str]]:
+    with open(DATA, encoding="utf-8") as f:
+        return [
+            {"title": row["title"].strip(), "body": row["body"].strip()}
+            for row in csv.DictReader(f)
+            if row.get("title") and row.get("body")
+        ]
 
-fact = random.choice(facts)
-title = fact["title"].strip()
-body = fact["body"].strip()
+
+def load_posted_titles() -> set[str]:
+    if not POSTED.exists():
+        return set()
+
+    with open(POSTED, encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip()}
+
+
+facts = load_facts()
+posted_titles = load_posted_titles()
+unused_facts = [fact for fact in facts if fact["title"] not in posted_titles]
+
+if not unused_facts:
+    raise RuntimeError("No unused facts left. Add more rows to data/facts.csv.")
+
+fact = random.choice(unused_facts)
+title = fact["title"]
+body = fact["body"]
 
 print("selected:", title)
 
@@ -45,12 +67,10 @@ filter_graph = (
     f"drawtext=fontfile='{FONT}':text='豆知識':"
     "fontcolor=white:fontsize=72:x=(w-text_w)/2:y=220,"
     f"drawtext=fontfile='{FONT}':text='{title_text}':"
-    "fontcolor=white:fontsize=96:line_spacing=20:"
-    "x=(w-text_w)/2:y=760,"
+    "fontcolor=white:fontsize=96:line_spacing=20:x=(w-text_w)/2:y=760,"
     f"drawtext=fontfile='{FONT}':text='{body_text}':"
-    "fontcolor=0xfdba74:fontsize=54:line_spacing=16:"
-    "x=(w-text_w)/2:y=1080,"
-    "drawtext=fontfile='{FONT}':text='@sin1234567  #shorts':"
+    "fontcolor=0xfdba74:fontsize=54:line_spacing=16:x=(w-text_w)/2:y=1080,"
+    "drawtext=fontfile='{FONT}':text='毎日1本  雑学ショート':"
     "fontcolor=0x94a3b8:fontsize=42:x=(w-text_w)/2:y=1720"
 )
 
@@ -76,9 +96,10 @@ subprocess.run(
 )
 
 metadata = {
-    "title": f"{title} #shorts",
-    "description": body,
-    "tags": ["shorts", "雑学"],
+    "title": f"知らない人が多い {title} #shorts",
+    "description": f"{body}\n\n毎日1本の雑学ショート\n#shorts #雑学 #豆知識",
+    "tags": ["shorts", "雑学", "豆知識"],
+    "source_title": title,
 }
 
 with open(OUT / "metadata.json", "w", encoding="utf-8") as f:
