@@ -18,8 +18,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - run: sudo add-apt-repository -y multiverse
       - run: sudo apt-get update
-      - run: sudo apt-get install -y ffmpeg fonts-noto-cjk
+      - run: sudo apt-get install -y ffmpeg fonts-noto-cjk open-jtalk open-jtalk-mecab-naist-jdic hts-voice-nitech-jp-atr503-m001
 
       - run: pip install -r requirements.txt
 

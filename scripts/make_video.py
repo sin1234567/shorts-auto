@@ -12,34 +12,30 @@ OUT.mkdir(exist_ok=True)
 
 WIDTH = 1080
 HEIGHT = 1920
-DURATION = 60
 FPS = 30
 FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+VOICE_DICT = "/var/lib/mecab/dic/open-jtalk/naist-jdic"
+VOICE_MODEL = "/usr/share/hts-voice/nitech-jp-atr503-m001/nitech_jp_atr503_m001.htsvoice"
 
 THEMES = [
     {"bg": "0x0f172a", "card": "0x1e293bcc", "accent": "0xf59e0b"},
     {"bg": "0x111827", "card": "0x1f2937cc", "accent": "0x22c55e"},
     {"bg": "0x172554", "card": "0x1d4ed8cc", "accent": "0xf97316"},
 ]
-HOOKS = [
-    "今日は一分で話せる雑学を一つだけ紹介します。",
-    "この話は知っていると誰かに話したくなるタイプです。",
-    "意外と知られていませんが、かなり印象に残る話です。",
+OPENERS = [
+    "今日は一分で聞ける雑学を一つだけ、できるだけ分かりやすく話します。",
+    "今回は短いのに会話のネタになりやすい雑学を、一つだけしっかり話します。",
+    "この話は知っていると誰かに話したくなるので、最後まで聞いてみてください。",
 ]
-DETAILS = [
-    "まず結論から言うと、",
-    "最初にポイントだけ言うと、",
-    "先にいちばん大事なところから言うと、",
-]
-REACTIONS = [
-    "こういう話は知識として覚えやすいです。",
-    "短いのに印象が強いので会話のネタにもなります。",
-    "一回聞くと忘れにくい雑学の典型です。",
+BRIDGES = [
+    "ここで大事なのは、ただ珍しいだけではなく、理由まで知ると覚えやすいことです。",
+    "一文だけで終わる話に見えますが、背景を知ると印象がかなり変わります。",
+    "短い雑学でも、意味が分かると急に記憶に残りやすくなります。",
 ]
 ENDINGS = [
-    "こういう短く話せる雑学を毎日増やしていきます。",
-    "次も一分で見られる雑学を出します。",
-    "面白かったら次の雑学も見てください。",
+    "こんな感じで、一分で覚えられる雑学を毎日一本ずつ出していきます。",
+    "面白かったら保存して、あとで誰かに話してみてください。",
+    "次も短く話せる雑学を出すので、気になる人はまた見てください。",
 ]
 TITLE_PATTERNS = [
     "知らない人が多い {title} #shorts",
@@ -89,18 +85,50 @@ def wrap_text(text: str, width: int = 16) -> str:
     return "\n".join(lines)
 
 
-def build_sections(title: str, body: str) -> list[str]:
-    first = f"{random.choice(HOOKS)}\n今日のテーマは『{title}』です。"
-    second = f"{random.choice(DETAILS)}{body}"
-    third = (
-        f"{title}は短い一文だけだと軽く見えますが、"
-        f"{random.choice(REACTIONS)}"
+def build_script(title: str, body: str) -> list[str]:
+    return [
+        f"{random.choice(OPENERS)} 今日のテーマは、{title}です。",
+        f"まず結論から言うと、{body}",
+        f"{random.choice(BRIDGES)} だから、この雑学は短いのに強く印象に残ります。",
+        f"もう一度まとめると、{title}という話でした。{random.choice(ENDINGS)}",
+    ]
+
+
+def synthesize_voice(text: str, out_wav: Path) -> None:
+    subprocess.run(
+        [
+            "open_jtalk",
+            "-x",
+            VOICE_DICT,
+            "-m",
+            VOICE_MODEL,
+            "-r",
+            "0.92",
+            "-ow",
+            str(out_wav),
+        ],
+        input=text.encode("utf-8"),
+        check=True,
     )
-    fourth = (
-        f"つまり今回のポイントは『{title}』です。\n"
-        f"{random.choice(ENDINGS)}"
+
+
+def get_media_duration(path: Path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
     )
-    return [wrap_text(part) for part in [first, second, third, fourth]]
+    return float(result.stdout.strip())
 
 
 facts = load_facts()
@@ -114,23 +142,33 @@ fact = random.choice(unused_facts)
 title = fact["title"]
 body = fact["body"]
 theme = random.choice(THEMES)
-sections = build_sections(title, body)
+sections = build_script(title, body)
+narration_text = " ".join(sections)
 
 print("selected:", title)
 
+voice_wav = OUT / "voice.wav"
+synthesize_voice(narration_text, voice_wav)
+audio_duration = get_media_duration(voice_wav)
+video_duration = max(55.0, min(59.0, audio_duration + 1.2))
+
 header_text = escape_drawtext("雑学スライム")
-title_text = escape_drawtext(f"今日の雑学\n{title}")
+title_text = escape_drawtext(wrap_text(f"今日の雑学\n{title}", 12))
+
 section_filters = []
-section_times = [(4, 15), (16, 29), (30, 43), (44, 57)]
+start_time = 5.0
+usable_time = max(40.0, video_duration - 10.0)
+segment = usable_time / len(sections)
 
 for index, section in enumerate(sections):
-    start, end = section_times[index]
-    escaped = escape_drawtext(section)
-    y = 720 if index < 2 else 760
+    start = start_time + index * segment
+    end = start_time + (index + 1) * segment - 0.5
+    escaped = escape_drawtext(wrap_text(section, 17))
+    y = 760
     section_filters.append(
         f"drawtext=fontfile='{FONT}':text='{escaped}':"
         "fontcolor=0xf8fafc:fontsize=46:line_spacing=18:"
-        f"x=90:y={y}:enable='between(t,{start},{end})'"
+        f"x=90:y={y}:enable='between(t,{start:.2f},{end:.2f})'"
     )
 
 filter_parts = [
@@ -138,10 +176,10 @@ filter_parts = [
     f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill",
     f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill",
     f"drawtext=fontfile='{FONT}':text='{header_text}':fontcolor=white:fontsize=64:x=(w-text_w)/2:y=180",
-    f"drawtext=fontfile='{FONT}':text='{title_text}':fontcolor=white:fontsize=74:line_spacing=18:x=90:y=360",
+    f"drawtext=fontfile='{FONT}':text='{title_text}':fontcolor=white:fontsize=72:line_spacing=20:x=90:y=360",
     *section_filters,
-    "drawtext=fontfile='{FONT}':text='1分で見られる雑学ショート':fontcolor=0xfcd34d:fontsize=38:x=(w-text_w)/2:y=1680",
-    "drawtext=fontfile='{FONT}':text='保存してあとで見返せます':fontcolor=0x94a3b8:fontsize=34:x=(w-text_w)/2:y=1760",
+    "drawtext=fontfile='{FONT}':text='1分で聞ける雑学ショート':fontcolor=0xfcd34d:fontsize=38:x=(w-text_w)/2:y=1680",
+    "drawtext=fontfile='{FONT}':text='雑学スライム':fontcolor=0x94a3b8:fontsize=34:x=(w-text_w)/2:y=1760",
 ]
 filter_graph = ",".join(filter_parts)
 
@@ -152,25 +190,31 @@ subprocess.run(
         "-f",
         "lavfi",
         "-i",
-        f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:d={DURATION}",
+        f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:d={video_duration}",
+        "-i",
+        str(voice_wav),
         "-vf",
         filter_graph,
         "-r",
         str(FPS),
         "-c:v",
         "libx264",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
         "-pix_fmt",
         "yuv420p",
+        "-shortest",
         str(OUT / "short.mp4"),
     ],
     check=True,
 )
 
-script_body = "\n".join(sections)
 metadata = {
     "title": random.choice(TITLE_PATTERNS).format(title=title),
     "description": (
-        f"{script_body}\n\n"
+        f"{narration_text}\n\n"
         "毎日1本の雑学ショート\n"
         "#shorts #雑学 #豆知識"
     ),
