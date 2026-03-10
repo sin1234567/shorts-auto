@@ -6,43 +6,77 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "facts.csv"
-VIDEO = ROOT / "assets" / "slime.mp4"
 OUT = ROOT / "out"
 OUT.mkdir(exist_ok=True)
 
-facts = []
+WIDTH = 1080
+HEIGHT = 1920
+DURATION = 20
+FPS = 30
+FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+
+
+def escape_drawtext(value: str) -> str:
+    return (
+        value.replace("\\", r"\\\\")
+        .replace(":", r"\:")
+        .replace("'", r"\'")
+        .replace(",", r"\,")
+        .replace("%", r"\%")
+    )
+
 
 with open(DATA, encoding="utf-8") as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        facts.append(row)
+    facts = list(csv.DictReader(f))
 
 fact = random.choice(facts)
-text = fact["title"]
-body = fact["body"]
+title = fact["title"].strip()
+body = fact["body"].strip()
 
-print("selected:", text)
+print("selected:", title)
+
+title_text = escape_drawtext(title)
+body_text = escape_drawtext(body)
+
+filter_graph = (
+    "format=yuv420p,"
+    "drawbox=x=60:y=120:w=960:h=1680:color=0x1e293bcc:t=fill,"
+    "drawbox=x=60:y=120:w=960:h=18:color=0xf59e0b:t=fill,"
+    f"drawtext=fontfile='{FONT}':text='豆知識':"
+    "fontcolor=white:fontsize=72:x=(w-text_w)/2:y=220,"
+    f"drawtext=fontfile='{FONT}':text='{title_text}':"
+    "fontcolor=white:fontsize=96:line_spacing=20:"
+    "x=(w-text_w)/2:y=760,"
+    f"drawtext=fontfile='{FONT}':text='{body_text}':"
+    "fontcolor=0xfdba74:fontsize=54:line_spacing=16:"
+    "x=(w-text_w)/2:y=1080,"
+    "drawtext=fontfile='{FONT}':text='@sin1234567  #shorts':"
+    "fontcolor=0x94a3b8:fontsize=42:x=(w-text_w)/2:y=1720"
+)
 
 subprocess.run(
     [
         "ffmpeg",
-        "-stream_loop",
-        "-1",
+        "-y",
+        "-f",
+        "lavfi",
         "-i",
-        str(VIDEO),
-        "-t",
-        "20",
+        f"color=c=0x0f172a:s={WIDTH}x{HEIGHT}:d={DURATION}",
         "-vf",
-        "scale=1080:1920",
+        filter_graph,
+        "-r",
+        str(FPS),
         "-c:v",
         "libx264",
+        "-pix_fmt",
+        "yuv420p",
         str(OUT / "short.mp4"),
     ],
     check=True,
 )
 
 metadata = {
-    "title": f"{text} #shorts",
+    "title": f"{title} #shorts",
     "description": body,
     "tags": ["shorts", "雑学"],
 }
