@@ -59,6 +59,7 @@ shorts-auto
 - 日本語テキスト
 - YouTube `public` 投稿
 - ネタ在庫は `data/facts.csv` に100本超を保存
+- 無料運用維持のためネタ生成はCSV在庫方式、言い回しは `make_video.py` 側で変化を付ける
 
 ## 重複防止
 

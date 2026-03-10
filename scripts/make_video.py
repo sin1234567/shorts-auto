@@ -22,25 +22,59 @@ THEMES = [
     {"bg": "0x111827", "card": "0x1f2937cc", "accent": "0x22c55e"},
     {"bg": "0x172554", "card": "0x1d4ed8cc", "accent": "0xf97316"},
 ]
+VOICE_SPEEDS = ["0.90", "0.94", "0.98"]
 OPENERS = [
     "今日は一分で聞ける雑学を一つだけ、できるだけ分かりやすく話します。",
     "今回は短いのに会話のネタになりやすい雑学を、一つだけしっかり話します。",
     "この話は知っていると誰かに話したくなるので、最後まで聞いてみてください。",
+    "今日は覚えやすいのに意外と知られていない雑学を一つだけ取り上げます。",
+    "今から話すのは、短いのに印象がかなり強いタイプの雑学です。",
 ]
-BRIDGES = [
+ANALYSIS_LINES = [
     "ここで大事なのは、ただ珍しいだけではなく、理由まで知ると覚えやすいことです。",
     "一文だけで終わる話に見えますが、背景を知ると印象がかなり変わります。",
     "短い雑学でも、意味が分かると急に記憶に残りやすくなります。",
+    "聞いた直後よりも、あとで誰かに説明するときに面白さが出るタイプの話です。",
+    "知識そのものより、なぜそうなるのかまで押さえると会話で使いやすくなります。",
 ]
 ENDINGS = [
     "こんな感じで、一分で覚えられる雑学を毎日一本ずつ出していきます。",
     "面白かったら保存して、あとで誰かに話してみてください。",
     "次も短く話せる雑学を出すので、気になる人はまた見てください。",
+    "このチャンネルでは、長すぎないけど中身は濃い雑学を集めています。",
+    "一回で覚えきれなくても、あとで見返せるように保存しておくと便利です。",
 ]
 TITLE_PATTERNS = [
     "知らない人が多い {title} #shorts",
     "一回聞くと覚える {title} #shorts",
     "話したくなる雑学 {title} #shorts",
+    "意外と知られていない {title} #shorts",
+    "短く話せる豆知識 {title} #shorts",
+]
+SUMMARY_PATTERNS = [
+    "結論だけ先に言うと、{title}は見た目以上に奥が深い話です。",
+    "ポイントを一つに絞るなら、{title}は短くても印象に残りやすい雑学です。",
+    "覚えておくなら、{title}は人に話しやすい雑学の一つです。",
+]
+HEADER_PATTERNS = [
+    "雑学スライム",
+    "1分雑学",
+    "今日の豆知識",
+]
+FOOTER_PATTERNS = [
+    "1分で聞ける雑学ショート",
+    "保存してあとで話せる雑学",
+    "短く濃いめの豆知識",
+]
+SUBFOOTER_PATTERNS = [
+    "雑学スライム",
+    "毎日1本更新",
+    "聞き流し雑学",
+]
+TAG_SETS = [
+    ["shorts", "雑学", "豆知識"],
+    ["shorts", "雑学", "知識"],
+    ["shorts", "豆知識", "会話ネタ"],
 ]
 
 
@@ -79,15 +113,17 @@ def wrap_text(text: str, width: int = 16) -> str:
 
 
 def build_script(title: str, body: str) -> list[str]:
+    summary = random.choice(SUMMARY_PATTERNS).format(title=title)
     return [
         f"{random.choice(OPENERS)} 今日のテーマは、{title}です。",
         f"まず結論から言うと、{body}",
-        f"{random.choice(BRIDGES)} だから、この雑学は短いのに強く印象に残ります。",
+        f"{random.choice(ANALYSIS_LINES)} {summary}",
         f"もう一度まとめると、{title}という話でした。{random.choice(ENDINGS)}",
     ]
 
 
 def synthesize_voice(text: str, out_wav: Path) -> None:
+    speed = random.choice(VOICE_SPEEDS)
     subprocess.run(
         [
             "open_jtalk",
@@ -96,7 +132,7 @@ def synthesize_voice(text: str, out_wav: Path) -> None:
             "-m",
             VOICE_MODEL,
             "-r",
-            "0.92",
+            speed,
             "-ow",
             str(out_wav),
         ],
@@ -150,10 +186,10 @@ title_file = OUT / "title.txt"
 footer_file = OUT / "footer.txt"
 subfooter_file = OUT / "subfooter.txt"
 
-header_file.write_text("雑学スライム", encoding="utf-8")
+header_file.write_text(random.choice(HEADER_PATTERNS), encoding="utf-8")
 title_file.write_text(wrap_text(f"今日の雑学\n{title}", 12), encoding="utf-8")
-footer_file.write_text("1分で聞ける雑学ショート", encoding="utf-8")
-subfooter_file.write_text("雑学スライム", encoding="utf-8")
+footer_file.write_text(random.choice(FOOTER_PATTERNS), encoding="utf-8")
+subfooter_file.write_text(random.choice(SUBFOOTER_PATTERNS), encoding="utf-8")
 
 header_path = escape_path(str(header_file))
 title_path = escape_path(str(title_file))
@@ -223,9 +259,9 @@ metadata = {
     "description": (
         f"{narration_text}\n\n"
         "毎日1本の雑学ショート\n"
-        "#shorts #雑学 #豆知識"
+        "#" + " #".join(random.choice(TAG_SETS))
     ),
-    "tags": ["shorts", "雑学", "豆知識"],
+    "tags": random.choice(TAG_SETS),
     "source_title": title,
 }
 
