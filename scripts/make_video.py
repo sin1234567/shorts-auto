@@ -12,7 +12,7 @@ OUT.mkdir(exist_ok=True)
 
 WIDTH = 1080
 HEIGHT = 1920
-DURATION = 36
+DURATION = 60
 FPS = 30
 FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 
@@ -22,23 +22,28 @@ THEMES = [
     {"bg": "0x172554", "card": "0x1d4ed8cc", "accent": "0xf97316"},
 ]
 HOOKS = [
-    "知ってたら誰かに話したくなる雑学です。",
-    "この話、意外と知らない人が多いです。",
-    "たぶん一回聞くと忘れません。",
+    "今日は一分で話せる雑学を一つだけ紹介します。",
+    "この話は知っていると誰かに話したくなるタイプです。",
+    "意外と知られていませんが、かなり印象に残る話です。",
 ]
-MIDDLES = [
-    "ポイントだけ短く話します。",
-    "まず結論からいきます。",
-    "無駄なく一気にいきます。",
+DETAILS = [
+    "まず結論から言うと、",
+    "最初にポイントだけ言うと、",
+    "先にいちばん大事なところから言うと、",
 ]
-CLOSERS = [
-    "こういう雑学、まだまだあります。",
-    "次も一分で話せるネタを出します。",
-    "知らなかったら保存しておいてください。",
+REACTIONS = [
+    "こういう話は知識として覚えやすいです。",
+    "短いのに印象が強いので会話のネタにもなります。",
+    "一回聞くと忘れにくい雑学の典型です。",
+]
+ENDINGS = [
+    "こういう短く話せる雑学を毎日増やしていきます。",
+    "次も一分で見られる雑学を出します。",
+    "面白かったら次の雑学も見てください。",
 ]
 TITLE_PATTERNS = [
     "知らない人が多い {title} #shorts",
-    "一回聞くと忘れない {title} #shorts",
+    "一回聞くと覚える {title} #shorts",
     "話したくなる雑学 {title} #shorts",
 ]
 
@@ -50,6 +55,7 @@ def escape_drawtext(value: str) -> str:
         .replace("'", r"\'")
         .replace(",", r"\,")
         .replace("%", r"\%")
+        .replace("\n", r"\n")
     )
 
 
@@ -70,14 +76,31 @@ def load_posted_titles() -> set[str]:
         return {line.strip() for line in f if line.strip()}
 
 
-def build_script(title: str, body: str) -> tuple[str, str, str]:
-    intro = random.choice(HOOKS)
-    middle = random.choice(MIDDLES)
-    closer = random.choice(CLOSERS)
-    script_title = f"今日の雑学: {title}"
-    script_body = f"{intro} {middle} {body}"
-    script_footer = closer
-    return script_title, script_body, script_footer
+def wrap_text(text: str, width: int = 16) -> str:
+    lines: list[str] = []
+    current = ""
+    for char in text:
+        current += char
+        if len(current) >= width and char not in "、。,. ":
+            lines.append(current)
+            current = ""
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
+
+
+def build_sections(title: str, body: str) -> list[str]:
+    first = f"{random.choice(HOOKS)}\n今日のテーマは『{title}』です。"
+    second = f"{random.choice(DETAILS)}{body}"
+    third = (
+        f"{title}は短い一文だけだと軽く見えますが、"
+        f"{random.choice(REACTIONS)}"
+    )
+    fourth = (
+        f"つまり今回のポイントは『{title}』です。\n"
+        f"{random.choice(ENDINGS)}"
+    )
+    return [wrap_text(part) for part in [first, second, third, fourth]]
 
 
 facts = load_facts()
@@ -91,32 +114,36 @@ fact = random.choice(unused_facts)
 title = fact["title"]
 body = fact["body"]
 theme = random.choice(THEMES)
+sections = build_sections(title, body)
 
 print("selected:", title)
 
-script_title, script_body, script_footer = build_script(title, body)
+header_text = escape_drawtext("雑学スライム")
+title_text = escape_drawtext(f"今日の雑学\n{title}")
+section_filters = []
+section_times = [(4, 15), (16, 29), (30, 43), (44, 57)]
 
-title_text = escape_drawtext(script_title)
-body_text = escape_drawtext(script_body)
-footer_text = escape_drawtext(script_footer)
+for index, section in enumerate(sections):
+    start, end = section_times[index]
+    escaped = escape_drawtext(section)
+    y = 720 if index < 2 else 760
+    section_filters.append(
+        f"drawtext=fontfile='{FONT}':text='{escaped}':"
+        "fontcolor=0xf8fafc:fontsize=46:line_spacing=18:"
+        f"x=90:y={y}:enable='between(t,{start},{end})'"
+    )
 
-filter_graph = (
-    "format=yuv420p,"
-    f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill,"
-    f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill,"
-    f"drawtext=fontfile='{FONT}':text='雑学スライム':"
-    "fontcolor=white:fontsize=64:x=(w-text_w)/2:y=180,"
-    f"drawtext=fontfile='{FONT}':text='{title_text}':"
-    "fontcolor=white:fontsize=76:line_spacing=18:x=90:y=420:"
-    "box=0,"
-    f"drawtext=fontfile='{FONT}':text='{body_text}':"
-    "fontcolor=0xf8fafc:fontsize=48:line_spacing=20:x=90:y=760:"
-    "box=0,"
-    f"drawtext=fontfile='{FONT}':text='{footer_text}':"
-    "fontcolor=0xfcd34d:fontsize=42:line_spacing=16:x=90:y=1450,"
-    "drawtext=fontfile='{FONT}':text='チャンネル登録と保存もどうぞ':"
-    "fontcolor=0x94a3b8:fontsize=36:x=(w-text_w)/2:y=1750"
-)
+filter_parts = [
+    "format=yuv420p",
+    f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill",
+    f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill",
+    f"drawtext=fontfile='{FONT}':text='{header_text}':fontcolor=white:fontsize=64:x=(w-text_w)/2:y=180",
+    f"drawtext=fontfile='{FONT}':text='{title_text}':fontcolor=white:fontsize=74:line_spacing=18:x=90:y=360",
+    *section_filters,
+    "drawtext=fontfile='{FONT}':text='1分で見られる雑学ショート':fontcolor=0xfcd34d:fontsize=38:x=(w-text_w)/2:y=1680",
+    "drawtext=fontfile='{FONT}':text='保存してあとで見返せます':fontcolor=0x94a3b8:fontsize=34:x=(w-text_w)/2:y=1760",
+]
+filter_graph = ",".join(filter_parts)
 
 subprocess.run(
     [
@@ -139,11 +166,11 @@ subprocess.run(
     check=True,
 )
 
+script_body = "\n".join(sections)
 metadata = {
     "title": random.choice(TITLE_PATTERNS).format(title=title),
     "description": (
         f"{script_body}\n\n"
-        f"{script_footer}\n\n"
         "毎日1本の雑学ショート\n"
         "#shorts #雑学 #豆知識"
     ),
