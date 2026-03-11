@@ -46,12 +46,31 @@ jobs:
           YOUTUBE_PRIVACY_STATUS: public
         run: python scripts/upload_youtube.py
 
+      - name: Read upload status
+        if: ${{ env.YOUTUBE_TOKEN_JSON != '' }}
+        id: upload_status
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("out/upload_status.json")
+          status = "missing"
+          if path.exists():
+              status = json.loads(path.read_text(encoding="utf-8")).get("status", "unknown")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              print(f"status={status}", file=f)
+          PY
+
       - name: Record posted fact
-        if: ${{ success() && env.YOUTUBE_TOKEN_JSON != '' }}
+        if: ${{ success() && env.YOUTUBE_TOKEN_JSON != '' && steps.upload_status.outputs.status == 'uploaded' }}
         run: python scripts/mark_posted.py
 
       - name: Commit posted history
-        if: ${{ success() && env.YOUTUBE_TOKEN_JSON != '' }}
+        if: ${{ success() && env.YOUTUBE_TOKEN_JSON != '' && steps.upload_status.outputs.status == 'uploaded' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
