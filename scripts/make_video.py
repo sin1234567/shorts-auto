@@ -28,9 +28,17 @@ FFPROBE = (
     if IS_WINDOWS
     else "ffprobe"
 )
+VOICE_SPEED = "1.00"
 
 CATEGORY_KEYWORDS = {
-    "動物": ["タコ", "コアラ", "キリン", "イルカ", "ミツバチ", "カタツムリ", "ワニ", "パンダ", "フクロウ", "ラクダ", "ラッコ", "カバ", "ナマケモノ", "ペンギン", "シロクマ", "サメ", "クラゲ", "ヒトデ", "カメレオン", "ハリネズミ", "モグラ", "カンガルー", "シマウマ", "チーター", "フラミンゴ", "アホウドリ", "カワウソ", "カエル", "カニ", "タツノオトシゴ", "ホタル", "アリクイ", "ゾウ", "クジャク", "サンゴ", "ウミガメ", "キツツキ", "カモノハシ", "シロアリ", "アザラシ", "ペリカン", "ミミズ", "トンボ"],
+    "動物": [
+        "タコ", "コアラ", "キリン", "イルカ", "ミツバチ", "カタツムリ", "ワニ", "パンダ",
+        "フクロウ", "ラクダ", "ラッコ", "カバ", "ナマケモノ", "ペンギン", "シロクマ", "サメ",
+        "クラゲ", "ヒトデ", "カメレオン", "ハリネズミ", "モグラ", "カンガルー", "シマウマ",
+        "チーター", "フラミンゴ", "アホウドリ", "カワウソ", "カエル", "カニ", "タツノオトシゴ",
+        "ホタル", "アリクイ", "ゾウ", "クジャク", "サンゴ", "ウミガメ", "キツツキ", "カモノハシ",
+        "シロアリ", "アザラシ", "ペリカン", "ミミズ", "トンボ",
+    ],
     "植物": ["バナナ", "サボテン", "竹", "ひまわり", "イチゴ", "松ぼっくり", "樹木", "キノコ", "ワサビ", "玉ねぎ"],
     "宇宙": ["木星", "金星", "土星", "海王星", "月", "火星", "水星", "冥王星", "太陽", "流れ星", "北極星", "ブラックホール", "オーロラ"],
     "人体": ["皮膚", "爪", "髪", "人の骨", "心臓", "脳", "鼻", "舌", "血液", "筋肉", "まばたき", "くしゃみ", "睡眠", "髪の毛", "汗", "骨", "赤血球", "胃酸", "顔"],
@@ -43,35 +51,61 @@ THEMES = [
     {"bg": "0x111827", "card": "0x1f2937cc", "accent": "0x22c55e"},
     {"bg": "0x172554", "card": "0x1d4ed8cc", "accent": "0xf97316"},
 ]
-VOICE_SPEED = "1.00"
+
 OPENERS = [
     "今日は一分で聞ける雑学を一つだけ、できるだけ分かりやすく話します。",
     "今回は短いのに会話のネタになりやすい雑学を、一つだけしっかり話します。",
-    "この話は知っていると誰かに話したくなるので、最後まで聞いてみてください。",
-    "今日は覚えやすいのに意外と知られていない雑学を一つだけ取り上げます。",
-    "今から話すのは、短いのに印象がかなり強いタイプの雑学です。",
+    "この話は知っていると誰かに言いたくなるので、短く整理して紹介します。",
+    "今日は意外と知られていない豆知識を、一つだけテンポよく見ていきます。",
+    "一見ふつうに見えても、仕組みを知ると印象が変わる雑学です。",
 ]
 ANALYSIS_LINES = [
-    "ここで大事なのは、ただ珍しいだけではなく、理由まで知ると覚えやすいことです。",
-    "一文だけで終わる話に見えますが、背景を知ると印象がかなり変わります。",
-    "短い雑学でも、意味が分かると急に記憶に残りやすくなります。",
-    "聞いた直後よりも、あとで誰かに説明するときに面白さが出るタイプの話です。",
-    "知識そのものより、なぜそうなるのかまで押さえると会話で使いやすくなります。",
+    "ここが面白いのは、ただの雑学ではなく理由まで想像しやすいところです。",
+    "一言で終わる話でも、背景を知るとかなり印象が変わります。",
+    "短い知識でも、日常の見え方に結びつくと記憶に残りやすいです。",
+    "聞いた直後よりも、あとでふと思い出しやすいタイプの話です。",
+    "言葉だけでなく場面を想像すると、かなり覚えやすくなります。",
 ]
 ENDINGS = [
-    "こんな感じで、一分で覚えられる雑学を毎日一本ずつ出していきます。",
-    "面白かったら保存して、あとで誰かに話してみてください。",
-    "次も短く話せる雑学を出すので、気になる人はまた見てください。",
-    "このチャンネルでは、長すぎないけど中身は濃い雑学を集めています。",
-    "一回で覚えきれなくても、あとで見返せるように保存しておくと便利です。",
+    "こんな感じで、一分で聞ける雑学を毎日一本ずつ出しています。",
+    "気になったら保存して、あとで誰かに話してみてください。",
+    "次も短く話せる雑学を出すので、気軽に見てください。",
+    "このチャンネルでは、聞き流しでも頭に残る雑学を集めています。",
+    "一つでも面白かったら、また次の動画も見てください。",
 ]
 TITLE_PATTERNS = [
-    "知らない人が多い {title} #shorts",
-    "一回聞くと覚える {title} #shorts",
-    "話したくなる雑学 {title} #shorts",
     "意外と知られていない {title} #shorts",
+    "一分でわかる雑学 {title} #shorts",
     "短く話せる豆知識 {title} #shorts",
+    "知ってると話したくなる {title} #shorts",
+    "覚えやすい雑学 {title} #shorts",
 ]
+SUMMARY_PATTERNS = [
+    "結論だけ先に言うと、{title}は見た目以上に奥が深い話です。",
+    "ポイントを一つに絞るなら、{title}は短くても印象に残りやすい雑学です。",
+    "要するに、{title}は人に話しやすい一言ネタです。",
+]
+HEADER_PATTERNS = [
+    "雑学ショート",
+    "1分で雑学",
+    "今日の豆知識",
+]
+FOOTER_PATTERNS = [
+    "1分で聞ける雑学ショート",
+    "保存してあとで話せる雑学",
+    "短く覚える豆知識",
+]
+SUBFOOTER_PATTERNS = [
+    "雑学チャンネル",
+    "毎日1本更新",
+    "聞き流し雑学",
+]
+TAG_SETS = [
+    ["shorts", "雑学", "豆知識"],
+    ["shorts", "雑学", "会話ネタ"],
+    ["shorts", "豆知識", "学び"],
+]
+
 CATEGORY_OPENERS = {
     "動物": ["今回は生き物の雑学を一つだけ、分かりやすく話します。", "今日は動物の体や行動に関する面白い話を取り上げます。"],
     "植物": ["今日は植物の見方が少し変わる雑学を一つ紹介します。", "身近な植物でも分類や仕組みを知ると印象が変わります。"],
@@ -83,7 +117,7 @@ CATEGORY_OPENERS = {
 CATEGORY_ANALYSIS = {
     "動物": ["体のつくりと暮らし方がつながっていると覚えやすいです。", "動物の雑学は行動の理由まで知ると一気に印象が残ります。"],
     "植物": ["分類や形の意味まで押さえると、ただの名前の知識で終わりません。", "植物の話は見た目と仕組みの差を知ると面白くなります。"],
-    "宇宙": ["数字や距離の感覚まで想像すると、一気にスケールが伝わります。", "宇宙の雑学は日常と離れているぶん記憶に残りやすいです."] ,
+    "宇宙": ["数字や距離の感覚まで想像すると、一気にスケールが伝わります。", "宇宙の雑学は日常と離れているぶん記憶に残りやすいです。"],
     "人体": ["自分の体の話なので、その場でイメージしやすいのが強みです。", "人体の雑学は今日から見方を変えられるので会話にも使いやすいです。"],
     "地球": ["自然現象の理由が分かると、普段の景色の見え方まで変わります。", "地球の話は知識だけでなく観察の視点も増やしてくれます。"],
     "科学": ["身近な道具や現象に理屈があると分かると印象がかなり変わります。", "科学の雑学は実生活に結びつくので覚えやすいです。"],
@@ -96,31 +130,6 @@ CATEGORY_TAGS = {
     "地球": ["shorts", "雑学", "自然"],
     "科学": ["shorts", "雑学", "科学"],
 }
-SUMMARY_PATTERNS = [
-    "結論だけ先に言うと、{title}は見た目以上に奥が深い話です。",
-    "ポイントを一つに絞るなら、{title}は短くても印象に残りやすい雑学です。",
-    "覚えておくなら、{title}は人に話しやすい雑学の一つです。",
-]
-HEADER_PATTERNS = [
-    "雑学スライム",
-    "1分雑学",
-    "今日の豆知識",
-]
-FOOTER_PATTERNS = [
-    "1分で聞ける雑学ショート",
-    "保存してあとで話せる雑学",
-    "短く濃いめの豆知識",
-]
-SUBFOOTER_PATTERNS = [
-    "雑学スライム",
-    "毎日1本更新",
-    "聞き流し雑学",
-]
-TAG_SETS = [
-    ["shorts", "雑学", "豆知識"],
-    ["shorts", "雑学", "知識"],
-    ["shorts", "豆知識", "会話ネタ"],
-]
 
 
 def escape_path(value: str) -> str:
@@ -139,7 +148,6 @@ def load_facts() -> list[dict[str, str]]:
 def load_posted_history() -> list[str]:
     if not POSTED.exists():
         return []
-
     with open(POSTED, encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
@@ -174,9 +182,7 @@ def similarity_score(left: str, right: str) -> float:
     right_ngrams = char_ngrams(right)
     if not left_ngrams or not right_ngrams:
         return 0.0
-    overlap = left_ngrams & right_ngrams
-    universe = left_ngrams | right_ngrams
-    return len(overlap) / len(universe)
+    return len(left_ngrams & right_ngrams) / len(left_ngrams | right_ngrams)
 
 
 def remove_similar_lines(lines: list[str], threshold: float = 0.72) -> list[str]:
@@ -195,11 +201,7 @@ def choose_fact(
     posted_titles: set[str],
     posted_history: list[str],
 ) -> dict[str, str]:
-    enriched = []
-    for fact in facts:
-        category = infer_category(fact["title"], fact["body"])
-        enriched.append({**fact, "category": category})
-
+    enriched = [{**fact, "category": infer_category(fact["title"], fact["body"])} for fact in facts]
     unused = [fact for fact in enriched if fact["title"] not in posted_titles]
     if not unused:
         raise RuntimeError("No unused facts left. Add more rows to data/facts.csv.")
@@ -219,7 +221,6 @@ def choose_fact(
     for fact in candidates:
         similarity = max(similarity_score(fact["title"], recent_title) for recent_title in recent_titles)
         scored_candidates.append((similarity, random.random(), fact))
-
     scored_candidates.sort(key=lambda item: (item[0], item[1]))
     return scored_candidates[0][2]
 
@@ -241,12 +242,13 @@ def build_script(title: str, body: str, category: str) -> list[str]:
     summary = random.choice(SUMMARY_PATTERNS).format(title=title)
     opener = random.choice(CATEGORY_OPENERS.get(category, OPENERS))
     analysis = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
-    return [
+    lines = [
         f"{opener} 今日のテーマは、{title}です。",
         f"まず結論から言うと、{body}",
         f"{analysis} {summary}",
         f"もう一度まとめると、{title}という話でした。{random.choice(ENDINGS)}",
     ]
+    return remove_similar_lines(lines)
 
 
 def synthesize_voice(text: str, out_wav: Path) -> None:
@@ -347,7 +349,7 @@ title = fact["title"]
 body = fact["body"]
 category = fact["category"]
 theme = random.choice(THEMES)
-sections = remove_similar_lines(build_script(title, body, category))
+sections = build_script(title, body, category)
 if IS_WINDOWS:
     sections = [title, body]
 narration_text = " ".join(sections)
@@ -388,11 +390,10 @@ for index, section in enumerate(sections):
     section_file = OUT / f"section_{index + 1}.txt"
     section_file.write_text(wrap_text(section, 17), encoding="utf-8")
     section_path = escape_path(str(section_file))
-    y = 760
     section_filters.append(
-        f"drawtext=fontfile='{FONT}':textfile='{section_path}':"
+        f"drawtext=fontfile='{font_path}':textfile='{section_path}':"
         "fontcolor=0xf8fafc:fontsize=46:line_spacing=18:"
-        f"x=90:y={y}:enable='between(t,{start:.2f},{end:.2f})'"
+        f"x=90:y=760:enable='between(t,{start:.2f},{end:.2f})'"
     )
 
 filter_parts = [
@@ -437,11 +438,7 @@ subprocess.run(
 
 metadata = {
     "title": random.choice(TITLE_PATTERNS).format(title=title),
-    "description": (
-        f"{narration_text}\n\n"
-        "毎日1本の雑学ショート\n"
-        "#" + " #".join(CATEGORY_TAGS.get(category, random.choice(TAG_SETS)))
-    ),
+    "description": f"{narration_text}\n\n毎日1本の雑学ショート\n#" + " #".join(CATEGORY_TAGS.get(category, random.choice(TAG_SETS))),
     "tags": CATEGORY_TAGS.get(category, random.choice(TAG_SETS)),
     "source_title": title,
     "category": category,
