@@ -251,6 +251,18 @@ def build_script(title: str, body: str, category: str) -> list[str]:
     return remove_similar_lines(lines)
 
 
+def build_narration_text(title: str, body: str, category: str) -> str:
+    return " ".join(
+        [
+            random.choice(CATEGORY_OPENERS.get(category, OPENERS)),
+            f"今日のテーマは、{title}です。",
+            body,
+            random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)),
+            random.choice(ENDINGS),
+        ]
+    )
+
+
 def synthesize_voice(text: str, out_wav: Path) -> None:
     if IS_WINDOWS:
         temp_mp3 = OUT / "voice_raw.mp3"
@@ -352,7 +364,7 @@ theme = random.choice(THEMES)
 sections = build_script(title, body, category)
 if IS_WINDOWS:
     sections = [title, body]
-narration_text = " ".join(sections)
+narration_text = build_narration_text(title, body, category)
 
 print("selected:", title)
 
@@ -388,12 +400,13 @@ for index, section in enumerate(sections):
     start = start_time + index * segment
     end = start_time + (index + 1) * segment - 0.5
     section_file = OUT / f"section_{index + 1}.txt"
-    section_file.write_text(wrap_text(section, 17), encoding="utf-8")
+    condensed = wrap_text(section, 15).splitlines()[:4]
+    section_file.write_text("\n".join(condensed), encoding="utf-8")
     section_path = escape_path(str(section_file))
     section_filters.append(
         f"drawtext=fontfile='{font_path}':textfile='{section_path}':"
-        "fontcolor=0xf8fafc:fontsize=46:line_spacing=18:"
-        f"x=90:y=760:enable='between(t,{start:.2f},{end:.2f})'"
+        "fontcolor=0xf8fafc:fontsize=42:line_spacing=14:"
+        f"x=90:y=860:enable='between(t,{start:.2f},{end:.2f})'"
     )
 
 filter_parts = [
