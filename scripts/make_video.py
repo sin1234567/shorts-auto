@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import random
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,16 +19,6 @@ IS_WINDOWS = os.name == "nt"
 FONT = "C:/Windows/Fonts/NotoSansJP-Regular.ttf" if IS_WINDOWS else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 VOICE_DICT = "/var/lib/mecab/dic/open-jtalk/naist-jdic"
 VOICE_MODEL = "/usr/share/hts-voice/nitech-jp-atr503-m001/nitech_jp_atr503_m001.htsvoice"
-FFMPEG = (
-    str((Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe").resolve())
-    if IS_WINDOWS
-    else "ffmpeg"
-)
-FFPROBE = (
-    str((Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "WinGet" / "Links" / "ffprobe.exe").resolve())
-    if IS_WINDOWS
-    else "ffprobe"
-)
 VOICE_SPEED = "1.00"
 
 CATEGORY_KEYWORDS = {
@@ -130,6 +121,37 @@ CATEGORY_TAGS = {
 
 def escape_path(value: str) -> str:
     return value.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+
+
+def resolve_binary(name: str) -> str:
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+    if not IS_WINDOWS:
+        return name
+
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        return name
+
+    link_path = Path(local_appdata) / "Microsoft" / "WinGet" / "Links" / f"{name}.exe"
+    if link_path.exists():
+        return str(link_path)
+
+    packages_root = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"
+    patterns = [
+        f"**/{name}.exe",
+        f"**/bin/{name}.exe",
+    ]
+    for pattern in patterns:
+        for candidate in packages_root.glob(pattern):
+            if candidate.is_file():
+                return str(candidate)
+    return name
+
+
+FFMPEG = resolve_binary("ffmpeg")
+FFPROBE = resolve_binary("ffprobe")
 
 
 def load_facts() -> list[dict[str, str]]:
@@ -247,19 +269,35 @@ def build_script(title: str, body: str, category: str) -> list[str]:
 
 
 def build_narration_text(title: str, body: str, category: str) -> str:
-    return " ".join(
-        [
-            random.choice(HOOK_PATTERNS).format(title=title),
-            body,
-            random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)),
-            random.choice(ENDINGS),
-        ]
+    return sanitize_tts_text(
+        " ".join(
+            [
+                random.choice(HOOK_PATTERNS).format(title=title),
+                body,
+                random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)),
+                random.choice(ENDINGS),
+            ]
+        )
     )
 
 
-def synthesize_voice(text: str, out_wav: Path) -> None:
+def sanitize_tts_text(text: str) -> str:
+    normalized = " ".join(text.split())
+    normalized = normalized.replace("。 ", "、")
+    normalized = normalized.replace("。", "、")
+    normalized = normalized.replace("! ", "、")
+    normalized = normalized.replace("！", "、")
+    normalized = normalized.replace("? ", "、")
+    normalized = normalized.replace("？", "、")
+    normalized = normalized.replace("、、", "、")
+    normalized = normalized.strip("、 ")
+    if normalized:
+        return f"{normalized}。"
+    return normalized
+
+
+def synthesize_voice(text: str, out_path: Path) -> None:
     if IS_WINDOWS:
-        temp_mp3 = OUT / "voice_raw.mp3"
         subprocess.run(
             [
                 "python",
@@ -270,23 +308,7 @@ def synthesize_voice(text: str, out_wav: Path) -> None:
                 "--text",
                 text,
                 "--write-media",
-                str(temp_mp3),
-            ],
-            check=True,
-        )
-        subprocess.run(
-            [
-                FFMPEG,
-                "-y",
-                "-i",
-                str(temp_mp3),
-                "-ar",
-                "48000",
-                "-ac",
-                "1",
-                "-c:a",
-                "pcm_s16le",
-                str(out_wav),
+                str(out_path),
             ],
             check=True,
         )
@@ -302,24 +324,40 @@ def synthesize_voice(text: str, out_wav: Path) -> None:
             "-r",
             VOICE_SPEED,
             "-ow",
-            str(out_wav),
+            str(out_path),
         ],
         input=text.encode("utf-8"),
         check=True,
     )
 
 
-def normalize_voice(in_wav: Path, out_wav: Path) -> None:
+def normalize_voice(in_audio: Path, out_wav: Path) -> None:
+    subprocess.run(
+        [
+            FFMPEG,
+            "-y",
+            "-i",
+            str(in_audio),
+            "-vn",
+            "-af",
+            "aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=mono",
+            "-c:a",
+            "pcm_s16le",
+            str(out_wav),
+        ],
+        check=True,
+    )
+
+
+def trim_trailing_silence(in_wav: Path, out_wav: Path) -> None:
     subprocess.run(
         [
             FFMPEG,
             "-y",
             "-i",
             str(in_wav),
-            "-ar",
-            "48000",
-            "-ac",
-            "1",
+            "-af",
+            "areverse,silenceremove=start_periods=1:start_duration=0.35:start_threshold=-38dB,areverse",
             "-c:a",
             "pcm_s16le",
             str(out_wav),
@@ -347,6 +385,31 @@ def get_media_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
+def get_audio_stream_info(path: Path) -> dict[str, str]:
+    result = subprocess.run(
+        [
+            FFPROBE,
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name,sample_rate,channels",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    data = json.loads(result.stdout)
+    streams = data.get("streams", [])
+    if not streams:
+        raise RuntimeError(f"No audio stream found in {path}")
+    return streams[0]
+
+
 facts = load_facts()
 posted_history = load_posted_history()
 posted_titles = load_posted_titles()
@@ -363,21 +426,29 @@ narration_text = build_narration_text(title, body, category)
 print("selected:", title)
 
 raw_voice_wav = OUT / "voice_raw.wav"
+raw_voice_mp3 = OUT / "voice_raw.mp3"
 voice_wav = OUT / "voice.wav"
-synthesize_voice(narration_text, raw_voice_wav)
-normalize_voice(raw_voice_wav, voice_wav)
-audio_duration = get_media_duration(voice_wav)
+voice_trimmed_wav = OUT / "voice_trimmed.wav"
+synthesize_voice(narration_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
+normalize_voice(raw_voice_mp3 if IS_WINDOWS else raw_voice_wav, voice_wav)
+trim_trailing_silence(voice_wav, voice_trimmed_wav)
+audio_info = get_audio_stream_info(voice_trimmed_wav)
+if audio_info.get("sample_rate") != "48000" or audio_info.get("channels") != 1:
+    raise RuntimeError(f"Unexpected normalized audio format: {audio_info}")
+audio_duration = get_media_duration(voice_trimmed_wav)
 video_duration = max(44.0, min(52.0, audio_duration + 0.8))
 
 header_file = OUT / "header.txt"
 title_file = OUT / "title.txt"
 footer_file = OUT / "footer.txt"
 subfooter_file = OUT / "subfooter.txt"
+narration_tts_file = OUT / "narration_tts.txt"
 
 header_file.write_text(random.choice(HEADER_PATTERNS), encoding="utf-8")
 title_file.write_text(wrap_text(title, 12), encoding="utf-8")
 footer_file.write_text(random.choice(FOOTER_PATTERNS), encoding="utf-8")
 subfooter_file.write_text(random.choice(SUBFOOTER_PATTERNS), encoding="utf-8")
+narration_tts_file.write_text(narration_text, encoding="utf-8")
 
 header_path = escape_path(str(header_file))
 title_path = escape_path(str(title_file))
@@ -424,7 +495,7 @@ subprocess.run(
         "-i",
         f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:d={video_duration}",
         "-i",
-        str(voice_wav),
+        str(voice_trimmed_wav),
         "-vf",
         filter_graph,
         "-r",
@@ -453,3 +524,6 @@ metadata = {
 
 with open(OUT / "metadata.json", "w", encoding="utf-8") as f:
     json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+print("preview audio:", voice_trimmed_wav)
+print("preview text:", narration_tts_file)
