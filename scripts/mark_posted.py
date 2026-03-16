@@ -11,7 +11,7 @@ def main() -> None:
         metadata = json.load(f)
 
     title = metadata["source_title"].strip()
-    POSTED.parent.mkdir(exist_ok=True)
+    POSTED.parent.mkdir(parents=True, exist_ok=True)
 
     existing = set()
     if POSTED.exists():

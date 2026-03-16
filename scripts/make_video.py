@@ -4,7 +4,10 @@ import os
 import random
 import shutil
 import subprocess
+import unicodedata
 from pathlib import Path
+
+from pykakasi import kakasi
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "facts.csv"
@@ -20,6 +23,7 @@ FONT = "C:/Windows/Fonts/NotoSansJP-Regular.ttf" if IS_WINDOWS else "/usr/share/
 VOICE_DICT = "/var/lib/mecab/dic/open-jtalk/naist-jdic"
 VOICE_MODEL = "/usr/share/hts-voice/nitech-jp-atr503-m001/nitech_jp_atr503_m001.htsvoice"
 VOICE_SPEED = "1.00"
+LEADING_SILENCE_MS = 180
 
 CATEGORY_KEYWORDS = {
     "動物": [
@@ -152,6 +156,7 @@ def resolve_binary(name: str) -> str:
 
 FFMPEG = resolve_binary("ffmpeg")
 FFPROBE = resolve_binary("ffprobe")
+KAKASI = kakasi()
 
 
 def load_facts() -> list[dict[str, str]]:
@@ -281,6 +286,27 @@ def build_narration_text(title: str, body: str, category: str) -> str:
     )
 
 
+def has_kanji(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def to_tts_text(text: str) -> str:
+    parts: list[str] = []
+    for item in KAKASI.convert(text):
+        original = item["orig"]
+        hira = item["hira"]
+        if has_kanji(original) and len(original) <= 2:
+            parts.append(hira)
+        else:
+            parts.append(original)
+    return "".join(parts)
+
+
+def normalize_display_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).replace("\ufffd", "")
+    return "".join(char for char in normalized if char == "\n" or unicodedata.category(char)[0] != "C")
+
+
 def sanitize_tts_text(text: str) -> str:
     normalized = " ".join(text.split())
     normalized = normalized.replace("。 ", "、")
@@ -349,6 +375,23 @@ def normalize_voice(in_audio: Path, out_wav: Path) -> None:
     )
 
 
+def add_leading_silence(in_wav: Path, out_wav: Path, delay_ms: int = LEADING_SILENCE_MS) -> None:
+    subprocess.run(
+        [
+            FFMPEG,
+            "-y",
+            "-i",
+            str(in_wav),
+            "-af",
+            f"adelay={delay_ms}",
+            "-c:a",
+            "pcm_s16le",
+            str(out_wav),
+        ],
+        check=True,
+    )
+
+
 def trim_trailing_silence(in_wav: Path, out_wav: Path) -> None:
     subprocess.run(
         [
@@ -383,6 +426,10 @@ def get_media_duration(path: Path) -> float:
         text=True,
     )
     return float(result.stdout.strip())
+
+
+def calculate_video_duration(audio_duration: float) -> float:
+    return min(35.0, audio_duration + 1.0)
 
 
 def get_audio_stream_info(path: Path) -> dict[str, str]:
@@ -422,21 +469,24 @@ sections = build_script(title, body, category)
 if IS_WINDOWS:
     sections = [title, body]
 narration_text = build_narration_text(title, body, category)
+tts_text = sanitize_tts_text(to_tts_text(narration_text))
 
 print("selected:", title)
 
 raw_voice_wav = OUT / "voice_raw.wav"
 raw_voice_mp3 = OUT / "voice_raw.mp3"
 voice_wav = OUT / "voice.wav"
+voice_padded_wav = OUT / "voice_padded.wav"
 voice_trimmed_wav = OUT / "voice_trimmed.wav"
-synthesize_voice(narration_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
+synthesize_voice(tts_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
 normalize_voice(raw_voice_mp3 if IS_WINDOWS else raw_voice_wav, voice_wav)
-trim_trailing_silence(voice_wav, voice_trimmed_wav)
+add_leading_silence(voice_wav, voice_padded_wav)
+trim_trailing_silence(voice_padded_wav, voice_trimmed_wav)
 audio_info = get_audio_stream_info(voice_trimmed_wav)
 if audio_info.get("sample_rate") != "48000" or audio_info.get("channels") != 1:
     raise RuntimeError(f"Unexpected normalized audio format: {audio_info}")
 audio_duration = get_media_duration(voice_trimmed_wav)
-video_duration = max(44.0, min(52.0, audio_duration + 0.8))
+video_duration = calculate_video_duration(audio_duration)
 
 header_file = OUT / "header.txt"
 title_file = OUT / "title.txt"
@@ -444,11 +494,11 @@ footer_file = OUT / "footer.txt"
 subfooter_file = OUT / "subfooter.txt"
 narration_tts_file = OUT / "narration_tts.txt"
 
-header_file.write_text(random.choice(HEADER_PATTERNS), encoding="utf-8")
-title_file.write_text(wrap_text(title, 12), encoding="utf-8")
-footer_file.write_text(random.choice(FOOTER_PATTERNS), encoding="utf-8")
-subfooter_file.write_text(random.choice(SUBFOOTER_PATTERNS), encoding="utf-8")
-narration_tts_file.write_text(narration_text, encoding="utf-8")
+header_file.write_text(normalize_display_text(random.choice(HEADER_PATTERNS)), encoding="utf-8")
+title_file.write_text(normalize_display_text(wrap_text(title, 12)), encoding="utf-8")
+footer_file.write_text(normalize_display_text(random.choice(FOOTER_PATTERNS)), encoding="utf-8")
+subfooter_file.write_text(normalize_display_text(random.choice(SUBFOOTER_PATTERNS)), encoding="utf-8")
+narration_tts_file.write_text(tts_text, encoding="utf-8")
 
 header_path = escape_path(str(header_file))
 title_path = escape_path(str(title_file))
@@ -457,16 +507,16 @@ subfooter_path = escape_path(str(subfooter_file))
 font_path = escape_path(FONT)
 
 section_filters = []
-start_time = 4.0
-usable_time = max(28.0, video_duration - 8.0)
+start_time = min(4.0, max(1.6, video_duration * 0.18))
+usable_time = max(2.4, video_duration - start_time - 1.0)
 segment = usable_time / len(sections)
 
 for index, section in enumerate(sections):
     start = start_time + index * segment
-    end = start_time + (index + 1) * segment - 0.4
+    end = start_time + (index + 1) * segment - 0.25
     section_file = OUT / f"section_{index + 1}.txt"
     condensed = wrap_text(section, 14).splitlines()[:3]
-    section_file.write_text("\n".join(condensed), encoding="utf-8")
+    section_file.write_text(normalize_display_text("\n".join(condensed)), encoding="utf-8")
     section_path = escape_path(str(section_file))
     section_filters.append(
         f"drawtext=fontfile='{font_path}':textfile='{section_path}':"
