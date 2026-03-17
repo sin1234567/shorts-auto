@@ -8,6 +8,7 @@ YouTube Shorts を毎日自動生成して投稿するリポジトリです。�
 - Linux 本番では `open_jtalk` を正式採用します。
 - 音質改善は TTS エンジン差し替えより先に、台本制約・自動整形・短チャンク分割で対応します。
 - Windows の `edge-tts` はローカル補助経路です。本番品質の基準にはしません。
+- コード、ワークフロー、ネタ設計、運用ルールを変えたときは、この README に同じターンで追記します。
 
 ## 構成
 
@@ -37,6 +38,8 @@ shorts-auto/
 [facts.csv](C:/Users/fillm/shorts-auto/data/facts.csv)
 - UTF-8 の `title,body` CSV
 - 1 行が 1 ネタです
+- タイトルは近縁重複を避け、数字、誤解修正、理由のいずれかを前に出してフックを作ります
+- 本文は単なる言い換えで終わらせず、仕組み、比較、誤解修正のどれかを 1 つ入れます
 
 [posted_facts.txt](C:/Users/fillm/shorts-auto/data/posted_facts.txt)
 - 投稿済みタイトルを 1 行ずつ記録します
