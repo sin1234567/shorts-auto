@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import subprocess
+import tempfile
 import unicodedata
 from pathlib import Path
 
@@ -24,6 +25,8 @@ VOICE_DICT = "/var/lib/mecab/dic/open-jtalk/naist-jdic"
 VOICE_MODEL = "/usr/share/hts-voice/nitech-jp-atr503-m001/nitech_jp_atr503_m001.htsvoice"
 VOICE_SPEED = "1.00"
 LEADING_SILENCE_MS = 180
+TRAILING_BUFFER_SEC = 0.35
+EDGE_TTS_RATE = "+12%"
 
 CATEGORY_KEYWORDS = {
     "動物": [
@@ -309,35 +312,111 @@ def normalize_display_text(text: str) -> str:
 
 def sanitize_tts_text(text: str) -> str:
     normalized = " ".join(text.split())
-    normalized = normalized.replace("。 ", "、")
-    normalized = normalized.replace("。", "、")
-    normalized = normalized.replace("! ", "、")
-    normalized = normalized.replace("！", "、")
-    normalized = normalized.replace("? ", "、")
-    normalized = normalized.replace("？", "、")
-    normalized = normalized.replace("、、", "、")
-    normalized = normalized.strip("、 ")
+    normalized = normalized.replace("。 ", "。")
+    normalized = normalized.replace("! ", "。")
+    normalized = normalized.replace("！", "。")
+    normalized = normalized.replace("? ", "。")
+    normalized = normalized.replace("？", "。")
+    while "。。" in normalized:
+        normalized = normalized.replace("。。", "。")
+    while "、、" in normalized:
+        normalized = normalized.replace("、、", "、")
+    normalized = normalized.strip("、。 ")
     if normalized:
         return f"{normalized}。"
     return normalized
 
 
-def synthesize_voice(text: str, out_path: Path) -> None:
-    if IS_WINDOWS:
+def split_tts_sentences(text: str) -> list[str]:
+    normalized = sanitize_tts_text(text)
+    if not normalized:
+        return []
+
+    sentence_units: list[str] = []
+    current = ""
+    for char in normalized:
+        current += char
+        if char in "。！？":
+            chunk = current.strip()
+            if chunk:
+                sentence_units.append(chunk)
+            current = ""
+    tail = current.strip()
+    if tail:
+        sentence_units.append(tail)
+
+    chunks: list[str] = []
+    for sentence in sentence_units:
+        parts = [part.strip() for part in sentence.replace("、", "、|").split("|") if part.strip()]
+        if not parts:
+            continue
+
+        current_chunk = ""
+        for part in parts:
+            candidate = (current_chunk + part).strip()
+            if current_chunk and len(candidate) > 24:
+                chunks.append(current_chunk.strip())
+                current_chunk = part
+            else:
+                current_chunk = candidate
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+    return [chunk for chunk in chunks if chunk]
+
+
+def synthesize_voice_windows(text: str, out_path: Path) -> None:
+    sentences = split_tts_sentences(text)
+    if not sentences:
+        raise RuntimeError("No text available for Windows TTS synthesis.")
+
+    with tempfile.TemporaryDirectory(dir=OUT) as tmp_dir_name:
+        tmp_dir = Path(tmp_dir_name)
+        concat_list = tmp_dir / "concat.txt"
+        concat_lines: list[str] = []
+
+        for index, sentence in enumerate(sentences, start=1):
+            part_path = tmp_dir / f"part_{index:03d}.mp3"
+            subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "edge_tts",
+                    "--voice",
+                    "ja-JP-NanamiNeural",
+                    "--rate",
+                    EDGE_TTS_RATE,
+                    "--text",
+                    sentence,
+                    "--write-media",
+                    str(part_path),
+                ],
+                check=True,
+            )
+            concat_lines.append(f"file '{part_path.as_posix()}'")
+
+        concat_list.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
         subprocess.run(
             [
-                "python",
-                "-m",
-                "edge_tts",
-                "--voice",
-                "ja-JP-NanamiNeural",
-                "--text",
-                text,
-                "--write-media",
+                FFMPEG,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-c",
+                "copy",
                 str(out_path),
             ],
             check=True,
         )
+
+
+def synthesize_voice(text: str, out_path: Path) -> None:
+    if IS_WINDOWS:
+        synthesize_voice_windows(text, out_path)
         return
 
     subprocess.run(
@@ -429,7 +508,7 @@ def get_media_duration(path: Path) -> float:
 
 
 def calculate_video_duration(audio_duration: float) -> float:
-    return min(35.0, audio_duration + 1.0)
+    return min(35.0, audio_duration + TRAILING_BUFFER_SEC)
 
 
 def get_audio_stream_info(path: Path) -> dict[str, str]:
@@ -470,6 +549,7 @@ if IS_WINDOWS:
     sections = [title, body]
 narration_text = build_narration_text(title, body, category)
 tts_text = sanitize_tts_text(to_tts_text(narration_text))
+tts_input_text = sanitize_tts_text(narration_text) if IS_WINDOWS else tts_text
 
 print("selected:", title)
 
@@ -478,7 +558,7 @@ raw_voice_mp3 = OUT / "voice_raw.mp3"
 voice_wav = OUT / "voice.wav"
 voice_padded_wav = OUT / "voice_padded.wav"
 voice_trimmed_wav = OUT / "voice_trimmed.wav"
-synthesize_voice(tts_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
+synthesize_voice(tts_input_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
 normalize_voice(raw_voice_mp3 if IS_WINDOWS else raw_voice_wav, voice_wav)
 add_leading_silence(voice_wav, voice_padded_wav)
 trim_trailing_silence(voice_padded_wav, voice_trimmed_wav)
@@ -498,7 +578,7 @@ header_file.write_text(normalize_display_text(random.choice(HEADER_PATTERNS)), e
 title_file.write_text(normalize_display_text(wrap_text(title, 12)), encoding="utf-8")
 footer_file.write_text(normalize_display_text(random.choice(FOOTER_PATTERNS)), encoding="utf-8")
 subfooter_file.write_text(normalize_display_text(random.choice(SUBFOOTER_PATTERNS)), encoding="utf-8")
-narration_tts_file.write_text(tts_text, encoding="utf-8")
+narration_tts_file.write_text(tts_input_text, encoding="utf-8")
 
 header_path = escape_path(str(header_file))
 title_path = escape_path(str(title_file))
@@ -507,8 +587,8 @@ subfooter_path = escape_path(str(subfooter_file))
 font_path = escape_path(FONT)
 
 section_filters = []
-start_time = min(4.0, max(1.6, video_duration * 0.18))
-usable_time = max(2.4, video_duration - start_time - 1.0)
+start_time = min(2.2, max(0.9, video_duration * 0.1))
+usable_time = max(2.4, video_duration - start_time - TRAILING_BUFFER_SEC)
 segment = usable_time / len(sections)
 
 for index, section in enumerate(sections):
@@ -543,7 +623,7 @@ subprocess.run(
         "-f",
         "lavfi",
         "-i",
-        f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:d={video_duration}",
+        f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:r={FPS}:d={video_duration}",
         "-i",
         str(voice_trimmed_wav),
         "-vf",
