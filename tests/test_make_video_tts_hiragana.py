@@ -1,14 +1,40 @@
 import ast
+import re
+import unicodedata
 from pathlib import Path
 
 
 def load_functions():
     source_path = Path(__file__).resolve().parents[1] / "scripts" / "make_video.py"
     module = ast.parse(source_path.read_text(encoding="utf-8"))
-    names = {"sanitize_tts_text", "build_narration_text", "to_tts_text", "has_kanji"}
+    max_narration_chars = None
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "MAX_NARRATION_CHARS":
+                    max_narration_chars = ast.literal_eval(node.value)
+
+    names = {
+        "sanitize_tts_text",
+        "build_narration_text",
+        "build_narration_lines",
+        "split_narration_line",
+        "normalize_narration_line",
+        "to_tts_text",
+        "has_kanji",
+        "remove_similar_lines",
+        "similarity_score",
+        "char_ngrams",
+        "normalize_similarity_text",
+    }
     selected = [node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in names]
 
-    namespace = {"__builtins__": __builtins__}
+    namespace = {
+        "__builtins__": __builtins__,
+        "MAX_NARRATION_CHARS": max_narration_chars,
+        "re": re,
+        "unicodedata": unicodedata,
+    }
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
     return namespace
 

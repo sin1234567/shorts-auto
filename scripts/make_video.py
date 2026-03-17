@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import tempfile
@@ -27,6 +28,7 @@ VOICE_SPEED = "1.00"
 LEADING_SILENCE_MS = 180
 TRAILING_BUFFER_SEC = 0.35
 EDGE_TTS_RATE = "+12%"
+MAX_NARRATION_CHARS = 20
 
 CATEGORY_KEYWORDS = {
     "動物": [
@@ -264,29 +266,113 @@ def wrap_text(text: str, width: int = 16) -> str:
     return "\n".join(lines)
 
 
+def normalize_narration_line(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = " ".join(normalized.split())
+    normalized = re.sub(r"[~〜]+", "", normalized)
+    normalized = re.sub(r"ー{2,}", "ー", normalized)
+    normalized = re.sub(r"(?:\.{3,}|…{2,}|・{3,})", "。", normalized)
+
+    filler_replacements = {
+        "\u305d\u3046\u3067\u3059\u306d": "\u305d\u3046\u3067\u3059\u306d\u3002\u610f\u5916\u3067\u3059\u3002",
+        "\u306a\u308b\u307b\u3069": "\u306a\u308b\u307b\u3069\u3002\u9762\u767d\u3044\u3067\u3059\u3002",
+        "\u305f\u3057\u304b\u306b": "\u305f\u3057\u304b\u306b\u3002\u6c17\u306b\u306a\u308a\u307e\u3059\u3002",
+    }
+    normalized = filler_replacements.get(normalized, normalized)
+
+    normalized = normalized.strip("、。！？ ")
+    if not normalized:
+        return ""
+    if normalized[-1] not in "。！？":
+        normalized += "。"
+    return normalized
+
+
+def split_narration_line(text: str, max_chars: int = MAX_NARRATION_CHARS) -> list[str]:
+    normalized = normalize_narration_line(text)
+    if not normalized:
+        return []
+    if len(normalized) <= max_chars:
+        return [normalized]
+
+    segments: list[str] = []
+    current = ""
+    pending_break = False
+    soft_break_words = (
+        "\u3067\u3082",
+        "\u305d\u3057\u3066",
+        "\u305f\u3060",
+        "\u5b9f\u306f",
+        "\u3064\u307e\u308a",
+        "\u306a\u306e\u3067",
+    )
+
+    for char in normalized:
+        current += char
+        if char in "。！？、":
+            pending_break = True
+
+        if len(current) < max_chars:
+            if pending_break and len(current) >= max(8, max_chars // 2):
+                segments.append(current.strip())
+                current = ""
+                pending_break = False
+            continue
+
+        split_index = -1
+        for word in soft_break_words:
+            word_index = current.rfind(word)
+            if 0 < word_index > split_index:
+                split_index = word_index
+        if split_index > 0:
+            head = current[:split_index].strip("、。！？ ")
+            tail = current[split_index:].strip()
+            if head:
+                if head[-1] not in "。！？":
+                    head += "。"
+                segments.append(head)
+            current = tail
+        else:
+            cut = current.rstrip("、")
+            if cut:
+                segments.append(cut if cut[-1] in "。！？" else f"{cut}。")
+            current = ""
+        pending_break = False
+
+    tail = current.strip()
+    if tail:
+        if tail[-1] not in "。！？":
+            tail += "。"
+        segments.append(tail)
+    return [segment for segment in segments if segment]
+
+
+def build_narration_lines(title: str, body: str, category: str) -> list[str]:
+    base_lines = [
+        random.choice(HOOK_PATTERNS).format(title=title),
+        body,
+        random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)),
+        random.choice(ENDINGS),
+    ]
+    normalized_lines: list[str] = []
+    for line in base_lines:
+        normalized_lines.extend(split_narration_line(line))
+    return remove_similar_lines(normalized_lines)
+
+
 def build_script(title: str, body: str, category: str) -> list[str]:
     hook = random.choice(HOOK_PATTERNS).format(title=title)
     analysis = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
     summary = random.choice(SUMMARY_PATTERNS).format(title=title)
-    lines = [
-        hook,
-        body,
-        f"{analysis} {summary}",
-    ]
+    lines: list[str] = []
+    lines.extend(split_narration_line(hook))
+    lines.extend(split_narration_line(body))
+    lines.extend(split_narration_line(f"{analysis} {summary}"))
     return remove_similar_lines(lines)
 
 
 def build_narration_text(title: str, body: str, category: str) -> str:
-    return sanitize_tts_text(
-        " ".join(
-            [
-                random.choice(HOOK_PATTERNS).format(title=title),
-                body,
-                random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)),
-                random.choice(ENDINGS),
-            ]
-        )
-    )
+    return sanitize_tts_text(" ".join(build_narration_lines(title, body, category)))
 
 
 def has_kanji(text: str) -> bool:
