@@ -365,6 +365,54 @@ def split_tts_sentences(text: str) -> list[str]:
     return [chunk for chunk in chunks if chunk]
 
 
+def synthesize_voice_linux(text: str, out_path: Path) -> None:
+    sentences = split_tts_sentences(text)
+    if not sentences:
+        raise RuntimeError("No text available for Linux TTS synthesis.")
+
+    with tempfile.TemporaryDirectory(dir=OUT) as tmp_dir_name:
+        tmp_dir = Path(tmp_dir_name)
+        concat_list = tmp_dir / "concat.txt"
+        concat_lines: list[str] = []
+
+        for index, sentence in enumerate(sentences, start=1):
+            part_path = tmp_dir / f"part_{index:03d}.wav"
+            subprocess.run(
+                [
+                    "open_jtalk",
+                    "-x",
+                    VOICE_DICT,
+                    "-m",
+                    VOICE_MODEL,
+                    "-r",
+                    VOICE_SPEED,
+                    "-ow",
+                    str(part_path),
+                ],
+                input=sentence.encode("utf-8"),
+                check=True,
+            )
+            concat_lines.append(f"file '{part_path.as_posix()}'")
+
+        concat_list.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
+        subprocess.run(
+            [
+                FFMPEG,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-c",
+                "copy",
+                str(out_path),
+            ],
+            check=True,
+        )
+
+
 def synthesize_voice_windows(text: str, out_path: Path) -> None:
     sentences = split_tts_sentences(text)
     if not sentences:
@@ -419,21 +467,7 @@ def synthesize_voice(text: str, out_path: Path) -> None:
         synthesize_voice_windows(text, out_path)
         return
 
-    subprocess.run(
-        [
-            "open_jtalk",
-            "-x",
-            VOICE_DICT,
-            "-m",
-            VOICE_MODEL,
-            "-r",
-            VOICE_SPEED,
-            "-ow",
-            str(out_path),
-        ],
-        input=text.encode("utf-8"),
-        check=True,
-    )
+    synthesize_voice_linux(text, out_path)
 
 
 def normalize_voice(in_audio: Path, out_wav: Path) -> None:
