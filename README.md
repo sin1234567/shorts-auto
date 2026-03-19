@@ -10,7 +10,7 @@ YouTube Shorts を毎日自動生成して投稿するリポジトリです。�
 - Windows の `edge-tts` はローカル補助経路です。本番品質の基準にはしません。
 - コード、ワークフロー、ネタ設計、運用ルールを変えたときは、この README に同じターンで追記します。
 - 2026-03-19: Git 無し運用では YouTube 確認を基準にし、アップロード既定は `private` とします。確認後に公開または予約公開へ回します。
-- 2026-03-19: GitHub Actions の定期実行は停止しました。以後は手動実行またはローカルからの予約投入で管理します。
+- 2026-03-19: GitHub Actions の定期実行を再度有効化しました。ローカルの手動・予約投入と併用します。
 
 ## 構成
 
@@ -180,6 +180,7 @@ python scripts/mark_posted.py
 
 - `workflow_dispatch`
 - `push` to `main`
+- `schedule`
 
 実行内容:
 
@@ -202,7 +203,7 @@ python scripts/mark_posted.py
 - 投稿済みタイトルは [posted_facts.txt](C:/Users/fillm/shorts-auto/data/posted_facts.txt) に記録します
 - Actions が `Record posted fact` を自動コミットします
 - 2026-03-19: 予約公開の一括投入は YouTube 側の当日アップロード上限で途中停止することがあります。2026-03-20 から 2026-03-22 までは予約投入済みで、2026-03-23 分から再開します。
-- 2026-03-19: GitHub Actions の `schedule` は削除済みです。自動日次投稿は止まっています。
+- 2026-03-19: GitHub Actions の `schedule` は再度有効です。日次自動投稿とローカル手動運用を併用します。
 
 ## Git 無し運用ログ
 
@@ -228,6 +229,32 @@ python scripts/mark_posted.py
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/schedule_remaining_uploads.ps1 -StartAt "2026-03-23T12:00:00+09:00" -Count 7 -UseCurrentVideoFirst
 ```
+
+### 2026-03-19 ローカル改善と確認
+
+- ローカル確認は行わず、YouTube 上の限定公開/非公開動画を確認基準にした
+- `scripts/make_video.py` に以下の改善を入れた
+  - `ffmpeg` 解決時の Windows `PermissionError` 回避
+  - 一時ディレクトリ処理の Windows 安定化
+  - 強制的な文字数切りを弱め、句読点優先の TTS 分割に変更
+  - フック文を短く自然な口語に寄せた
+  - 字幕帯と字幕描画を追加し、複数行は行ごとに個別描画へ変更
+  - 改行由来の四角文字対策として字幕テキストを LF 固定で出力
+  - 末尾に短い無音を追加して語尾切れを軽減
+  - 本文の 2 文目も拾いやすくして、話の薄さを改善
+
+確認用にアップロードした動画:
+
+- `https://www.youtube.com/watch?v=4KT6s2WdM3w`
+- `https://www.youtube.com/watch?v=Fzsle26UzII`
+- `https://www.youtube.com/watch?v=FEg75ZmkKh4`
+- `https://www.youtube.com/watch?v=sYDayNZDXuo`
+
+補足:
+
+- `Fzsle26UzII` は改善前の確認用
+- 以後の動画は、四角文字、音声途切れ、話の薄さを順に詰めた確認用
+- 長尺版は `C:/Users/fillm/long-video-auto` に分離したため、この README では Shorts 運用だけを管理する
 
 ## テスト
 
