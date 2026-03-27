@@ -286,6 +286,67 @@ powershell -ExecutionPolicy Bypass -File scripts/schedule_remaining_uploads.ps1 
 - `https://www.youtube.com/watch?v=FEg75ZmkKh4`
 - `https://www.youtube.com/watch?v=sYDayNZDXuo`
 
+### 2026-03-27 Shorts運用メモ
+
+- `消しゴムのかすはただのゴミではない` を生成してアップロード完了
+- 動画URL: `https://www.youtube.com/watch?v=rySnXm9xb-A`
+- `data/posted_facts.txt` に投稿済みとして記録
+- GitHub `main` へ push 済み
+- GitHub Actions と投稿済み履歴を共有できる状態へ修正
+
+今回判明したこと:
+
+- Shorts が止まっていた原因は、少なくとも今回確認した時点では `uploadLimitExceeded` ではなく YouTube トークン失効
+- 実エラーは `invalid_grant: Token has been expired or revoked.`
+- `scripts/authorize_youtube.py` で再認証後、アップロードは正常復旧
+
+入れた修正:
+
+- `scripts/upload_youtube.py`
+  - アップロード成功時に `posted_facts.txt` を自動更新
+  - `upload_status.json` に `source_title` を保存
+  - `invalid_grant` を検知したら `failed / tokenRevoked` を書く
+- `scripts/mark_posted.py`
+  - `record_posted_fact()` を切り出して再利用可能に変更
+- `scripts/make_video.py`
+  - `FACT_TITLE` で特定ネタを指定して生成可能に変更
+- `scripts/commit_posted_history.py`
+  - 投稿履歴だけを Git commit しやすくする補助スクリプトを追加
+- `README.md`
+  - 特定ネタ生成手順
+  - 手動アップロード時の投稿履歴共有手順
+  - トークン失効時の再認証手順
+  を追記
+
+Git反映:
+
+- GitHub push 済み
+- 反映済みコミット:
+  - `596950a` 投稿履歴共有と手動アップロード追跡
+  - `f199a34` トークン失効検知
+
+現在の確認状態:
+
+- `out/upload_status.json`: `uploaded`
+- `data/posted_facts.txt`: `消しゴムのかすはただのゴミではない` を記録済み
+- YouTube URL確認済み
+- GitHub `origin/main` 反映済み
+
+次候補:
+
+1. `500円玉は昔と今で素材が違う`
+2. `ホッチキスの針は勝手に曲がるわけではない`
+
+運用メモ:
+
+- 今後はアップロード後に必ず以下を確認する
+  - `out/upload_status.json`
+  - `data/posted_facts.txt`
+  - YouTube URL
+  - `git push` 済みか
+- `invalid_grant` が出た場合は事前通知ではなく失敗時発覚とみなす
+- その場合は `python scripts/authorize_youtube.py` を実行して再認証する
+
 補足:
 
 - `Fzsle26UzII` は改善前の確認用

@@ -64,9 +64,9 @@ OPENERS = [
     "この話は知っていると誰かに言いたくなるので、短く整理して紹介します。",
 ]
 ANALYSIS_LINES = [
-    "ここが面白いのは、ただの雑学ではなく理由まで想像しやすいところです。",
-    "一言で終わる話でも、背景を知るとかなり印象が変わります。",
-    "短い知識でも、日常の見え方に結びつくと記憶に残りやすいです。",
+    "理由まで分かると覚えやすいです。",
+    "ここを知ると見方が変わります。",
+    "仕組みまで分かると印象に残ります。",
 ]
 ENDINGS = [
     "覚えておくと面白いです。",
@@ -79,8 +79,8 @@ TITLE_PATTERNS = [
     "知ってると話したくなる {title} #shorts",
 ]
 SUMMARY_PATTERNS = [
-    "結論だけ先に言うと、{title}は見た目以上に奥が深い話です。",
-    "ポイントを一つに絞るなら、{title}は短くても印象に残りやすい雑学です。",
+    "{title}は一言で終わらない話です。",
+    "{title}は理由まで知ると面白いです。",
 ]
 HEADER_PATTERNS = [
     "雑学ショート",
@@ -440,12 +440,15 @@ def build_narration_lines(title: str, body: str, category: str) -> list[str]:
 
 def build_script(title: str, body: str, category: str) -> list[str]:
     hook = build_hook_line(title)
-    analysis = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
-    summary = random.choice(SUMMARY_PATTERNS).format(title=title)
+    body_lines = [segment.strip() for segment in re.split(r"(?<=[。！？])", normalize_narration_line(body)) if segment.strip()]
+    closing = build_closing_line(title, category)
     lines: list[str] = []
     lines.extend(split_narration_line(hook))
-    lines.extend(split_narration_line(body))
-    lines.extend(split_narration_line(f"{analysis} {summary}"))
+    if body_lines:
+        lines.extend(split_narration_line(body_lines[0]))
+    if len(body_lines) > 1:
+        lines.extend(split_narration_line(body_lines[1]))
+    lines.extend(split_narration_line(closing))
     return remove_similar_lines(lines)
 
 
@@ -456,6 +459,8 @@ def build_narration_text(title: str, body: str, category: str) -> str:
 def build_hook_line(title: str) -> str:
     opener = random.choice(HOOK_PATTERNS)
     cleaned_title = title.strip("。 ")
+    if any(token in cleaned_title for token in ("ではない", "違う", "勝手に", "ただの")):
+        return f"{cleaned_title}。"
     short_topic = cleaned_title
     for marker in ("は", "が"):
         if marker in cleaned_title:
@@ -465,6 +470,15 @@ def build_hook_line(title: str) -> str:
     if 0 < len(short_topic) <= 14:
         return f"{opener}{short_topic}の話です。"
     return f"{opener}{cleaned_title}という話です。"
+
+
+def build_closing_line(title: str, category: str) -> str:
+    if any(token in title for token in ("ではない", "違う", "ただの", "勝手に")):
+        return "思い込みと違うところが面白いです。"
+    category_lines = CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)
+    short_line = random.choice(category_lines)
+    short_line = short_line.replace("日常の見え方に結びつくと", "").replace("今日から", "").strip()
+    return short_line or random.choice(ENDINGS)
 
 
 def has_kanji(text: str) -> bool:
