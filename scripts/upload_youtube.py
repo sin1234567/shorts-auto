@@ -50,6 +50,17 @@ def main() -> None:
 
     youtube = build("youtube", "v3", credentials=credentials)
     tags = metadata.get("tags", [])
+    privacy_status = os.environ.get("YOUTUBE_PRIVACY_STATUS", "private")
+    publish_at = os.environ.get("YOUTUBE_PUBLISH_AT", "").strip()
+
+    status_payload = {
+        "privacyStatus": privacy_status,
+        "selfDeclaredMadeForKids": False,
+    }
+    if publish_at:
+        if privacy_status != "private":
+            raise RuntimeError("YOUTUBE_PUBLISH_AT requires YOUTUBE_PRIVACY_STATUS=private.")
+        status_payload["publishAt"] = publish_at
 
     request = youtube.videos().insert(
         part="snippet,status",
@@ -60,10 +71,7 @@ def main() -> None:
                 "tags": tags,
                 "categoryId": os.environ.get("YOUTUBE_CATEGORY_ID", "22"),
             },
-            "status": {
-                "privacyStatus": os.environ.get("YOUTUBE_PRIVACY_STATUS", "public"),
-                "selfDeclaredMadeForKids": False,
-            },
+            "status": status_payload,
         },
         media_body=MediaFileUpload(str(VIDEO), chunksize=-1, resumable=True),
     )

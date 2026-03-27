@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unicodedata
+import uuid
 from pathlib import Path
 
 from pykakasi import kakasi
@@ -26,7 +27,7 @@ VOICE_DICT = "/var/lib/mecab/dic/open-jtalk/naist-jdic"
 VOICE_MODEL = "/usr/share/hts-voice/nitech-jp-atr503-m001/nitech_jp_atr503_m001.htsvoice"
 VOICE_SPEED = "1.00"
 LEADING_SILENCE_MS = 180
-TRAILING_BUFFER_SEC = 0.35
+TRAILING_BUFFER_SEC = 0.8
 EDGE_TTS_RATE = "+12%"
 MAX_NARRATION_CHARS = 20
 
@@ -53,9 +54,9 @@ THEMES = [
 ]
 
 HOOK_PATTERNS = [
-    "結論から言うと、{title}はかなり意外です。",
-    "最初に答えを言うと、{title}は見た目よりずっと面白い話です。",
-    "一番大事なところだけ言うと、{title}には意外な理由があります。",
+    "今日は、",
+    "今回は、",
+    "ひとつだけ言うと、",
 ]
 OPENERS = [
     "今日は一分で聞ける雑学を一つだけ、できるだけ分かりやすく話します。",
@@ -68,9 +69,9 @@ ANALYSIS_LINES = [
     "短い知識でも、日常の見え方に結びつくと記憶に残りやすいです。",
 ]
 ENDINGS = [
-    "こんな感じで、一分で聞ける雑学を毎日一本ずつ出しています。",
-    "気になったら保存して、あとで誰かに話してみてください。",
-    "次も短く話せる雑学を出すので、気軽に見てください。",
+    "覚えておくと面白いです。",
+    "知っていると見方が変わります。",
+    "これだけでも十分ネタになります。",
 ]
 TITLE_PATTERNS = [
     "意外と知られていない {title} #shorts",
@@ -144,8 +145,11 @@ def resolve_binary(name: str) -> str:
         return name
 
     link_path = Path(local_appdata) / "Microsoft" / "WinGet" / "Links" / f"{name}.exe"
-    if link_path.exists():
-        return str(link_path)
+    try:
+        if link_path.exists():
+            return str(link_path)
+    except PermissionError:
+        pass
 
     packages_root = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"
     patterns = [
@@ -153,9 +157,16 @@ def resolve_binary(name: str) -> str:
         f"**/bin/{name}.exe",
     ]
     for pattern in patterns:
-        for candidate in packages_root.glob(pattern):
-            if candidate.is_file():
-                return str(candidate)
+        try:
+            candidates = packages_root.glob(pattern)
+        except PermissionError:
+            continue
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return str(candidate)
+            except PermissionError:
+                continue
     return name
 
 
@@ -255,15 +266,71 @@ def choose_fact(
 
 def wrap_text(text: str, width: int = 16) -> str:
     lines: list[str] = []
-    current = ""
-    for char in text:
-        current += char
-        if len(current) >= width and char not in "、。,. ":
-            lines.append(current)
-            current = ""
-    if current:
-        lines.append(current)
+    remaining = text.strip()
+    break_tokens = ("という", "ので", "から", "ため", "けれど", "ですが", "でも", "では", "には", "とは", "を", "が", "に", "で", "と", "は")
+
+    while remaining:
+        if len(remaining) <= width:
+            lines.append(remaining)
+            break
+
+        split_index = -1
+        for mark in ("、", "。", " ", ","):
+            mark_index = remaining.rfind(mark, 0, width + 1)
+            if mark_index > split_index:
+                split_index = mark_index + 1
+
+        if split_index <= 0:
+            for token in break_tokens:
+                token_index = remaining.rfind(token, 0, width + 1)
+                if token_index > 1 and token_index > split_index:
+                    split_index = token_index
+
+        if split_index <= 0:
+            split_index = width
+
+        line = remaining[:split_index].strip()
+        if not line:
+            break
+        lines.append(line)
+        remaining = remaining[split_index:].strip()
     return "\n".join(lines)
+
+
+def write_display_text(path: Path, text: str) -> None:
+    path.write_text(normalize_display_text(text), encoding="utf-8", newline="\n")
+
+
+def build_text_filters(
+    stem: str,
+    text: str,
+    font_path: str,
+    *,
+    fontcolor: str,
+    fontsize: int,
+    x_expr: str,
+    y_start: int,
+    line_gap: int,
+    enable: str | None = None,
+    extra: str = "",
+) -> list[str]:
+    filters: list[str] = []
+    lines = [line for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        line_file = OUT / f"{stem}_{index + 1}.txt"
+        write_display_text(line_file, line)
+        line_path = escape_path(str(line_file))
+        parts = [
+            f"drawtext=fontfile='{font_path}':textfile='{line_path}':fontcolor={fontcolor}:fontsize={fontsize}",
+        ]
+        if extra:
+            parts.append(extra)
+        parts.append(f"x={x_expr}")
+        parts.append(f"y={y_start + index * line_gap}")
+        if enable:
+            parts.append(f"enable='{enable}'")
+        filters.append(":".join(parts))
+    return filters
 
 
 def normalize_narration_line(text: str) -> str:
@@ -348,20 +415,22 @@ def split_narration_line(text: str, max_chars: int = MAX_NARRATION_CHARS) -> lis
 
 
 def build_narration_lines(title: str, body: str, category: str) -> list[str]:
+    body_lines = [segment for segment in re.split(r"(?<=[。！？])", normalize_narration_line(body)) if segment.strip()]
+    detail_line = body_lines[1].strip() if len(body_lines) > 1 else ""
+    analysis_line = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
     base_lines = [
-        random.choice(HOOK_PATTERNS).format(title=title),
-        body,
-        random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES)),
+        build_hook_line(title),
+        body_lines[0].strip() if body_lines else normalize_narration_line(body),
+        detail_line or analysis_line,
+        "" if detail_line else analysis_line,
         random.choice(ENDINGS),
     ]
-    normalized_lines: list[str] = []
-    for line in base_lines:
-        normalized_lines.extend(split_narration_line(line))
-    return remove_similar_lines(normalized_lines)
+    normalized_lines = [normalize_narration_line(line) for line in base_lines]
+    return remove_similar_lines([line for line in normalized_lines if line])
 
 
 def build_script(title: str, body: str, category: str) -> list[str]:
-    hook = random.choice(HOOK_PATTERNS).format(title=title)
+    hook = build_hook_line(title)
     analysis = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
     summary = random.choice(SUMMARY_PATTERNS).format(title=title)
     lines: list[str] = []
@@ -372,7 +441,21 @@ def build_script(title: str, body: str, category: str) -> list[str]:
 
 
 def build_narration_text(title: str, body: str, category: str) -> str:
-    return sanitize_tts_text(" ".join(build_narration_lines(title, body, category)))
+    return sanitize_tts_text("".join(build_narration_lines(title, body, category)))
+
+
+def build_hook_line(title: str) -> str:
+    opener = random.choice(HOOK_PATTERNS)
+    cleaned_title = title.strip("。 ")
+    short_topic = cleaned_title
+    for marker in ("は", "が"):
+        if marker in cleaned_title:
+            short_topic = cleaned_title.split(marker, 1)[0]
+            break
+    short_topic = short_topic.strip("、。 ")
+    if 0 < len(short_topic) <= 14:
+        return f"{opener}{short_topic}の話です。"
+    return f"{opener}{cleaned_title}という話です。"
 
 
 def has_kanji(text: str) -> bool:
@@ -431,22 +514,44 @@ def split_tts_sentences(text: str) -> list[str]:
     if tail:
         sentence_units.append(tail)
 
+    soft_break_words = ("でも", "そして", "ただ", "実は", "つまり", "なので", "ですが", "ため", "から")
     chunks: list[str] = []
     for sentence in sentence_units:
-        parts = [part.strip() for part in sentence.replace("、", "、|").split("|") if part.strip()]
-        if not parts:
-            continue
+        remaining = sentence.strip()
+        while remaining:
+            if len(remaining) <= 26:
+                chunks.append(remaining)
+                break
 
-        current_chunk = ""
-        for part in parts:
-            candidate = (current_chunk + part).strip()
-            if current_chunk and len(candidate) > 24:
-                chunks.append(current_chunk.strip())
-                current_chunk = part
-            else:
-                current_chunk = candidate
-        if current_chunk:
-            chunks.append(current_chunk.strip())
+            split_index = -1
+            for mark in "、":
+                mark_index = remaining.rfind(mark, 0, 26)
+                if mark_index > split_index:
+                    split_index = mark_index + 1
+
+            if split_index <= 0:
+                for word in soft_break_words:
+                    word_index = remaining.rfind(word, 0, 26)
+                    if word_index > 0 and word_index + len(word) > split_index:
+                        split_index = word_index + len(word)
+
+            if split_index <= 0:
+                split_index = -1
+                for word in soft_break_words:
+                    word_index = remaining.find(word, 26)
+                    if 26 < word_index <= 40:
+                        split_index = word_index
+                        break
+
+            if split_index <= 0:
+                chunks.append(remaining)
+                break
+
+            chunk = remaining[:split_index].strip()
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining = remaining[split_index:].strip()
 
     return [chunk for chunk in chunks if chunk]
 
@@ -456,7 +561,7 @@ def synthesize_voice_linux(text: str, out_path: Path) -> None:
     if not sentences:
         raise RuntimeError("No text available for Linux TTS synthesis.")
 
-    with tempfile.TemporaryDirectory(dir=OUT) as tmp_dir_name:
+    with tempfile.TemporaryDirectory() as tmp_dir_name:
         tmp_dir = Path(tmp_dir_name)
         concat_list = tmp_dir / "concat.txt"
         concat_lines: list[str] = []
@@ -504,8 +609,9 @@ def synthesize_voice_windows(text: str, out_path: Path) -> None:
     if not sentences:
         raise RuntimeError("No text available for Windows TTS synthesis.")
 
-    with tempfile.TemporaryDirectory(dir=OUT) as tmp_dir_name:
-        tmp_dir = Path(tmp_dir_name)
+    tmp_dir = OUT / f"_work_{uuid.uuid4().hex}"
+    tmp_dir.mkdir(parents=True, exist_ok=False)
+    try:
         concat_list = tmp_dir / "concat.txt"
         concat_lines: list[str] = []
 
@@ -546,6 +652,8 @@ def synthesize_voice_windows(text: str, out_path: Path) -> None:
             ],
             check=True,
         )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def synthesize_voice(text: str, out_path: Path) -> None:
@@ -599,7 +707,24 @@ def trim_trailing_silence(in_wav: Path, out_wav: Path) -> None:
             "-i",
             str(in_wav),
             "-af",
-            "areverse,silenceremove=start_periods=1:start_duration=0.35:start_threshold=-38dB,areverse",
+            "areverse,silenceremove=start_periods=1:start_duration=0.55:start_threshold=-42dB,areverse",
+            "-c:a",
+            "pcm_s16le",
+            str(out_wav),
+        ],
+        check=True,
+    )
+
+
+def add_trailing_silence(in_wav: Path, out_wav: Path, pad_sec: float = 0.75) -> None:
+    subprocess.run(
+        [
+            FFMPEG,
+            "-y",
+            "-i",
+            str(in_wav),
+            "-af",
+            f"apad=pad_dur={pad_sec}",
             "-c:a",
             "pcm_s16le",
             str(out_wav),
@@ -678,14 +803,16 @@ raw_voice_mp3 = OUT / "voice_raw.mp3"
 voice_wav = OUT / "voice.wav"
 voice_padded_wav = OUT / "voice_padded.wav"
 voice_trimmed_wav = OUT / "voice_trimmed.wav"
+voice_final_wav = OUT / "voice_final.wav"
 synthesize_voice(tts_input_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
 normalize_voice(raw_voice_mp3 if IS_WINDOWS else raw_voice_wav, voice_wav)
 add_leading_silence(voice_wav, voice_padded_wav)
 trim_trailing_silence(voice_padded_wav, voice_trimmed_wav)
-audio_info = get_audio_stream_info(voice_trimmed_wav)
+add_trailing_silence(voice_trimmed_wav, voice_final_wav)
+audio_info = get_audio_stream_info(voice_final_wav)
 if audio_info.get("sample_rate") != "48000" or audio_info.get("channels") != 1:
     raise RuntimeError(f"Unexpected normalized audio format: {audio_info}")
-audio_duration = get_media_duration(voice_trimmed_wav)
+audio_duration = get_media_duration(voice_final_wav)
 video_duration = calculate_video_duration(audio_duration)
 
 header_file = OUT / "header.txt"
@@ -694,14 +821,13 @@ footer_file = OUT / "footer.txt"
 subfooter_file = OUT / "subfooter.txt"
 narration_tts_file = OUT / "narration_tts.txt"
 
-header_file.write_text(normalize_display_text(random.choice(HEADER_PATTERNS)), encoding="utf-8")
-title_file.write_text(normalize_display_text(wrap_text(title, 12)), encoding="utf-8")
-footer_file.write_text(normalize_display_text(random.choice(FOOTER_PATTERNS)), encoding="utf-8")
-subfooter_file.write_text(normalize_display_text(random.choice(SUBFOOTER_PATTERNS)), encoding="utf-8")
-narration_tts_file.write_text(tts_input_text, encoding="utf-8")
+write_display_text(header_file, random.choice(HEADER_PATTERNS))
+write_display_text(title_file, wrap_text(title, 12))
+write_display_text(footer_file, random.choice(FOOTER_PATTERNS))
+write_display_text(subfooter_file, random.choice(SUBFOOTER_PATTERNS))
+write_display_text(narration_tts_file, tts_input_text)
 
 header_path = escape_path(str(header_file))
-title_path = escape_path(str(title_file))
 footer_path = escape_path(str(footer_file))
 subfooter_path = escape_path(str(subfooter_file))
 font_path = escape_path(FONT)
@@ -714,14 +840,51 @@ segment = usable_time / len(sections)
 for index, section in enumerate(sections):
     start = start_time + index * segment
     end = start_time + (index + 1) * segment - 0.25
-    section_file = OUT / f"section_{index + 1}.txt"
     condensed = wrap_text(section, 14).splitlines()[:3]
-    section_file.write_text(normalize_display_text("\n".join(condensed)), encoding="utf-8")
-    section_path = escape_path(str(section_file))
-    section_filters.append(
-        f"drawtext=fontfile='{font_path}':textfile='{section_path}':"
-        "fontcolor=0xf8fafc:fontsize=44:line_spacing=14:"
-        f"x=90:y=980:enable='between(t,{start:.2f},{end:.2f})'"
+    section_filters.extend(
+        build_text_filters(
+            f"section_{index + 1}",
+            "\n".join(condensed),
+            font_path,
+            fontcolor="0xf8fafc",
+            fontsize=44,
+            x_expr="90",
+            y_start=980,
+            line_gap=58,
+            enable=f"between(t,{start:.2f},{end:.2f})",
+            extra="line_spacing=14",
+        )
+    )
+
+subtitle_filters = []
+subtitle_chunks = split_tts_sentences(tts_input_text)
+subtitle_start = LEADING_SILENCE_MS / 1000
+subtitle_duration = max(1.2, audio_duration - subtitle_start)
+subtitle_segment = subtitle_duration / max(1, len(subtitle_chunks))
+
+for index, chunk in enumerate(subtitle_chunks):
+    subtitle_text = "\n".join(wrap_text(chunk, 16).splitlines()[:2])
+    start = subtitle_start + index * subtitle_segment
+    end = min(video_duration - 0.1, subtitle_start + (index + 1) * subtitle_segment)
+    subtitle_filters.append(
+        f"drawbox=x=70:y=1390:w=940:h=250:color=0x020617c8:t=fill:enable='between(t,{start:.2f},{end:.2f})'"
+    )
+    subtitle_filters.append(
+        f"drawbox=x=70:y=1390:w=940:h=4:color={theme['accent']}:t=fill:enable='between(t,{start:.2f},{end:.2f})'"
+    )
+    subtitle_filters.extend(
+        build_text_filters(
+            f"subtitle_{index + 1:02d}",
+            subtitle_text,
+            font_path,
+            fontcolor="white",
+            fontsize=58,
+            x_expr="(w-text_w)/2",
+            y_start=1466,
+            line_gap=78,
+            enable=f"between(t,{start:.2f},{end:.2f})",
+            extra="line_spacing=20:borderw=2.5:bordercolor=0x020617",
+        )
     )
 
 filter_parts = [
@@ -729,8 +892,19 @@ filter_parts = [
     f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill",
     f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill",
     f"drawtext=fontfile='{font_path}':textfile='{header_path}':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=180",
-    f"drawtext=fontfile='{font_path}':textfile='{title_path}':fontcolor=white:fontsize=74:line_spacing=18:x=90:y=360",
+    *build_text_filters(
+        "title",
+        wrap_text(title, 12),
+        font_path,
+        fontcolor="white",
+        fontsize=74,
+        x_expr="90",
+        y_start=360,
+        line_gap=92,
+        extra="line_spacing=18",
+    ),
     *section_filters,
+    *subtitle_filters,
     f"drawtext=fontfile='{font_path}':textfile='{footer_path}':fontcolor=0xfcd34d:fontsize=36:x=(w-text_w)/2:y=1680",
     f"drawtext=fontfile='{font_path}':textfile='{subfooter_path}':fontcolor=0x94a3b8:fontsize=32:x=(w-text_w)/2:y=1760",
 ]
@@ -745,7 +919,7 @@ subprocess.run(
         "-i",
         f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:r={FPS}:d={video_duration}",
         "-i",
-        str(voice_trimmed_wav),
+        str(voice_final_wav),
         "-vf",
         filter_graph,
         "-r",
@@ -758,7 +932,8 @@ subprocess.run(
         "192k",
         "-pix_fmt",
         "yuv420p",
-        "-shortest",
+        "-t",
+        f"{video_duration:.2f}",
         str(OUT / "short.mp4"),
     ],
     check=True,
