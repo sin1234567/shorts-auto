@@ -6,11 +6,11 @@ METADATA = ROOT / "out" / "metadata.json"
 POSTED = ROOT / "data" / "posted_facts.txt"
 
 
-def main() -> None:
-    with open(METADATA, encoding="utf-8") as f:
-        metadata = json.load(f)
+def record_posted_fact(title: str) -> bool:
+    title = title.strip()
+    if not title:
+        raise RuntimeError("source title is empty.")
 
-    title = metadata["source_title"].strip()
     POSTED.parent.mkdir(parents=True, exist_ok=True)
 
     existing = set()
@@ -20,12 +20,20 @@ def main() -> None:
 
     if title in existing:
         print(f"Already recorded: {title}")
-        return
+        return False
 
     with open(POSTED, "a", encoding="utf-8") as f:
         f.write(title + "\n")
 
     print(f"Recorded posted fact: {title}")
+    return True
+
+
+def main() -> None:
+    with open(METADATA, encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    record_posted_fact(metadata["source_title"])
 
 
 if __name__ == "__main__":

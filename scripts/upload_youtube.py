@@ -8,6 +8,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError, ResumableUploadError
 from googleapiclient.http import MediaFileUpload
 
+from mark_posted import record_posted_fact
+
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "out"
@@ -88,7 +90,8 @@ def main() -> None:
         write_status("failed", reason=type(exc).__name__)
         raise
 
-    write_status("uploaded", video_id=response["id"])
+    write_status("uploaded", video_id=response["id"], source_title=metadata["source_title"])
+    record_posted_fact(metadata["source_title"])
     print(f"Upload complete: https://www.youtube.com/watch?v={response['id']}")
 
 

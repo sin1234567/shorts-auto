@@ -62,3 +62,14 @@ def test_creates_parent_directory_if_needed(tmp_path, monkeypatch):
 
     assert posted.parent.exists()
     assert posted.read_text(encoding="utf-8") == "松ぼっくりは湿ると閉じやすい\n"
+
+
+def test_record_posted_fact_returns_false_for_duplicates(tmp_path, monkeypatch):
+    mark_posted = load_mark_posted_module()
+    posted = tmp_path / "data" / "posted_facts.txt"
+    posted.parent.mkdir(parents=True, exist_ok=True)
+    posted.write_text("風は気圧差で生まれる\n", encoding="utf-8")
+
+    monkeypatch.setattr(mark_posted, "POSTED", posted)
+
+    assert mark_posted.record_posted_fact("風は気圧差で生まれる") is False

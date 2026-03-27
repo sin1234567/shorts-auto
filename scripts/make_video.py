@@ -241,6 +241,15 @@ def choose_fact(
     posted_history: list[str],
 ) -> dict[str, str]:
     enriched = [{**fact, "category": infer_category(fact["title"], fact["body"])} for fact in facts]
+    forced_title = os.environ.get("FACT_TITLE", "").strip()
+    if forced_title:
+        for fact in enriched:
+            if fact["title"] == forced_title:
+                if fact["title"] in posted_titles:
+                    raise RuntimeError(f"FACT_TITLE is already posted: {forced_title}")
+                return fact
+        raise RuntimeError(f"FACT_TITLE not found in facts.csv: {forced_title}")
+
     unused = [fact for fact in enriched if fact["title"] not in posted_titles]
     if not unused:
         raise RuntimeError("No unused facts left. Add more rows to data/facts.csv.")

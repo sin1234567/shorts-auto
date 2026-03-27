@@ -2,6 +2,11 @@
 
 YouTube Shorts を毎日自動生成して投稿するリポジトリです。ネタの選定、動画生成、YouTube 投稿、投稿済み履歴の更新までを一連で回します。
 
+補足:
+
+- ロング動画版は別リポジトリ `C:/Users/fillm/long-video-auto` で管理します
+- この README は Shorts 運用のみを対象にします
+
 ## 運用方針
 
 - 本番基準は Linux / GitHub Actions です。
@@ -11,6 +16,7 @@ YouTube Shorts を毎日自動生成して投稿するリポジトリです。�
 - コード、ワークフロー、ネタ設計、運用ルールを変えたときは、この README に同じターンで追記します。
 - 2026-03-19: Git 無し運用では YouTube 確認を基準にし、アップロード既定は `private` とします。確認後に公開または予約公開へ回します。
 - 2026-03-19: GitHub Actions の定期実行を再度有効化しました。ローカルの手動・予約投入と併用します。
+- 2026-03-27: 直近の再生数分析では `身近な物 + 意外な事実` が強かったため、比較用に同系統の新ネタを3本追加しました。公開時刻は `12:00 JST` で固定し、しばらくはテーマと尺の差を優先して見ます。
 
 ## 構成
 
@@ -44,6 +50,7 @@ shorts-auto/
 - 本文は単なる言い換えで終わらせず、仕組み、比較、誤解修正のどれかを 1 つ入れます
 - 2026-03-18: `facts.csv` の修正は短文化ではなく内容強化を優先します。本文に仕組み・比較・誤解修正を足して、聞いたあとに一段深く理解できるネタへ寄せます
 - 2026-03-18: 作業前に README へ今回やる修正方針を追記してから進めます
+- 検証用に特定ネタを出したいときは `FACT_TITLE` 環境変数で `facts.csv` のタイトルを直接指定できます
 
 [posted_facts.txt](C:/Users/fillm/shorts-auto/data/posted_facts.txt)
 - 投稿済みタイトルを 1 行ずつ記録します
@@ -131,6 +138,26 @@ pip install -r requirements.txt
 
 ```bash
 python scripts/make_video.py
+```
+
+特定ネタを指定して生成:
+
+```powershell
+$env:FACT_TITLE = "消しゴムのかすはただのゴミではない"
+python scripts/make_video.py
+```
+
+YouTube へ手動アップロードした場合:
+
+```bash
+python scripts/upload_youtube.py
+```
+
+- 成功時は `data/posted_facts.txt` に自動で記録されます
+- GitHub Actions 側と共有したいときは次でコミットできます
+
+```bash
+python scripts/commit_posted_history.py
 ```
 
 主な生成物:

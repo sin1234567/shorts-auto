@@ -1,5 +1,6 @@
 import json
 import importlib.util
+import sys
 from pathlib import Path
 
 from googleapiclient.errors import HttpError, ResumableUploadError
@@ -7,6 +8,7 @@ from googleapiclient.errors import HttpError, ResumableUploadError
 
 def load_upload_youtube_module():
     source_path = Path(__file__).resolve().parents[1] / "scripts" / "upload_youtube.py"
+    sys.path.insert(0, str(source_path.parent))
     spec = importlib.util.spec_from_file_location("upload_youtube", source_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
