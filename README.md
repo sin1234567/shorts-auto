@@ -347,6 +347,19 @@ Git反映:
 - `invalid_grant` が出た場合は事前通知ではなく失敗時発覚とみなす
 - その場合は `python scripts/authorize_youtube.py` を実行して再認証する
 
+### 2026-03-27 GitHub Actions 復旧
+
+- GitHub Actions の `Upload to YouTube` 失敗は、repo secret `YOUTUBE_TOKEN_JSON` が古いままだったことが原因
+- ローカルで `scripts/authorize_youtube.py` を実行して更新した `token.json` を、GitHub secret `YOUTUBE_TOKEN_JSON` に反映
+- その後の run `23635340799` は `success`
+- これでローカルと GitHub Actions の両方で YouTube アップロードが復旧
+
+確認メモ:
+
+- 失敗 step が `Upload to YouTube` のときは、まず `YOUTUBE_TOKEN_JSON` の失効を疑う
+- ローカルで再認証して成功したら、GitHub 側の secret も同じ内容で更新する
+- 復旧確認は Actions run の `conclusion=success` まで見る
+
 補足:
 
 - `Fzsle26UzII` は改善前の確認用
