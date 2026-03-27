@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -29,6 +30,13 @@ def is_upload_limit_error(exc: Exception) -> bool:
     return False
 
 
+def is_token_revoked_error(exc: Exception) -> bool:
+    if not isinstance(exc, RefreshError):
+        return False
+    message = str(exc)
+    return "invalid_grant" in message and ("expired or revoked" in message or "revoked" in message)
+
+
 def main() -> None:
     if STATUS.exists():
         STATUS.unlink()
@@ -44,10 +52,20 @@ def main() -> None:
         metadata = json.load(f)
 
     credentials = Credentials.from_authorized_user_file(str(token_file), SCOPES)
-    if credentials.expired and credentials.refresh_token:
-        credentials.refresh(Request())
+    try:
+        if credentials.expired and credentials.refresh_token:
+            credentials.refresh(Request())
+    except Exception as exc:
+        if is_token_revoked_error(exc):
+            write_status("failed", reason="tokenRevoked", source_title=metadata["source_title"])
+            raise RuntimeError(
+                "YouTube token refresh failed: token expired or revoked. Run scripts/authorize_youtube.py."
+            ) from exc
+        write_status("failed", reason=type(exc).__name__, source_title=metadata["source_title"])
+        raise
 
     if not credentials.valid:
+        write_status("failed", reason="invalidCredentials", source_title=metadata["source_title"])
         raise RuntimeError("YouTube credentials are invalid. Recreate token.json with offline access.")
 
     youtube = build("youtube", "v3", credentials=credentials)

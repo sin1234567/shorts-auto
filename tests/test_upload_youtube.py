@@ -3,6 +3,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError, ResumableUploadError
 
 
@@ -53,3 +54,17 @@ def test_is_upload_limit_error_returns_false_for_unrelated_exceptions():
 
     assert upload_youtube.is_upload_limit_error(RuntimeError("nope")) is False
     assert upload_youtube.is_upload_limit_error(http_exc) is False
+
+
+def test_is_token_revoked_error_returns_true_for_invalid_grant():
+    upload_youtube = load_upload_youtube_module()
+    exc = RefreshError("('invalid_grant: Token has been expired or revoked.', {'error': 'invalid_grant'})")
+
+    assert upload_youtube.is_token_revoked_error(exc) is True
+
+
+def test_is_token_revoked_error_returns_false_for_other_refresh_errors():
+    upload_youtube = load_upload_youtube_module()
+    exc = RefreshError("temporary failure")
+
+    assert upload_youtube.is_token_revoked_error(exc) is False

@@ -172,6 +172,15 @@ YouTube 認証:
 python scripts/authorize_youtube.py
 ```
 
+トークン失効時の再認証:
+
+```bash
+python scripts/authorize_youtube.py
+```
+
+- `scripts/upload_youtube.py` 実行時に `invalid_grant` が出た場合は、`out/upload_status.json` に `failed / tokenRevoked` を書きます
+- この状態では事前通知は来ない前提で、アップロード失敗時に再認証して復旧します
+
 アップロード:
 
 ```bash
