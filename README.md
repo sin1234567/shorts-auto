@@ -236,6 +236,7 @@ python scripts/mark_posted.py
 
 - Actions の `Summarize upload result` で `status` と `reason` を確認します
 - `Upload to YouTube` が失敗しても `Read upload status` は実行され、job の末尾で `Upload failed: reason=...` を明示します
+- `status=blocked` かつ `reason=uploadLimitExceeded` の場合は YouTube 側の当日上限として扱い、workflow 自体は失敗させません
 - `reason=tokenRevoked` の場合は `python scripts/authorize_youtube.py` を実行して、更新された `secrets/token.json` を GitHub Secret `YOUTUBE_TOKEN_JSON` に再登録します
 - `daily-shorts-diagnostics` artifact に `out/upload_status.json` と `out/metadata.json` が残ります
 

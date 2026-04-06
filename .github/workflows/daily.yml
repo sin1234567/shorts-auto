@@ -120,7 +120,7 @@ jobs:
           PY
 
       - name: Fail workflow on upload error
-        if: ${{ always() && env.YOUTUBE_TOKEN_JSON != '' && steps.upload_status.outputs.status != 'uploaded' }}
+        if: ${{ always() && env.YOUTUBE_TOKEN_JSON != '' && steps.upload_status.outputs.status == 'failed' }}
         shell: bash
         run: |
           python - <<'PY'
