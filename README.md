@@ -17,6 +17,7 @@ YouTube Shorts を毎日自動生成して投稿するリポジトリです。�
 - 2026-03-19: Git 無し運用では YouTube 確認を基準にし、アップロード既定は `private` とします。確認後に公開または予約公開へ回します。
 - 2026-03-19: GitHub Actions の定期実行を再度有効化しました。ローカルの手動・予約投入と併用します。
 - 2026-03-27: 直近の再生数分析では `身近な物 + 意外な事実` が強かったため、比較用に同系統の新ネタを3本追加しました。公開時刻は `12:00 JST` で固定し、しばらくはテーマと尺の差を優先して見ます。
+- 2026-04-01: テスト実行は `tests/` に限定し、Windows では `tests_tmp/` を使って一時ディレクトリ権限の不安定さを避けます。`upload_status.json` は失敗時も `source_title` と公開設定を残すようにしました。
 
 ## 構成
 
@@ -62,7 +63,7 @@ shorts-auto/
 - フレームレートは `30fps`
 - 背景テーマは定義済み配色からランダム選択
 - 動画尺は音声長ベースで決定
-- 動画長は `audio_duration + 0.8秒`
+- 動画長は `audio_duration + 0.35秒`
 - 最大動画長は `35秒`
 - 先頭に `180ms` の無音を追加
 - 後端の無音は弱めにトリムし、その後に余白を足して末尾切れを防ぎます
@@ -224,11 +225,18 @@ python scripts/mark_posted.py
 2. Ubuntu 上で `ffmpeg`, `open-jtalk`, Noto フォントをインストール
 3. `python scripts/make_video.py`
 4. `YOUTUBE_TOKEN_JSON` があれば YouTube 投稿
-5. 投稿成功時のみ `posted_facts.txt` を更新して push
+5. `out/upload_status.json` と `out/metadata.json` を artifact として保存
+6. 投稿成功時のみ `posted_facts.txt` を更新して push
 
 必要な GitHub Secret:
 
 - `YOUTUBE_TOKEN_JSON`
+
+失敗時の確認:
+
+- Actions の `Summarize upload result` で `status` と `reason` を確認します
+- `reason=tokenRevoked` の場合は `python scripts/authorize_youtube.py` を実行して、更新された `secrets/token.json` を GitHub Secret `YOUTUBE_TOKEN_JSON` に再登録します
+- `daily-shorts-diagnostics` artifact に `out/upload_status.json` と `out/metadata.json` が残ります
 
 ## 投稿仕様
 

@@ -65,6 +65,68 @@ jobs:
               print(f"status={status}", file=f)
           PY
 
+      - name: Summarize upload result
+        if: ${{ always() && env.YOUTUBE_TOKEN_JSON != '' }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          status_path = Path("out/upload_status.json")
+
+          if not status_path.exists():
+              summary_path.write_text(
+                  "## Upload status\n\n`out/upload_status.json` was not created.\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit(0)
+
+          payload = json.loads(status_path.read_text(encoding="utf-8"))
+          status = payload.get("status", "unknown")
+          reason = payload.get("reason", "")
+          source_title = payload.get("source_title", "")
+          privacy_status = payload.get("privacyStatus", "")
+          publish_at = payload.get("publishAt", "")
+
+          lines = [
+              "## Upload status",
+              "",
+              f"- status: `{status}`",
+          ]
+          if reason:
+              lines.append(f"- reason: `{reason}`")
+          if source_title:
+              lines.append(f"- source_title: `{source_title}`")
+          if privacy_status:
+              lines.append(f"- privacyStatus: `{privacy_status}`")
+          if publish_at:
+              lines.append(f"- publishAt: `{publish_at}`")
+
+          if reason == "tokenRevoked":
+              lines.extend(
+                  [
+                      "",
+                      "YouTube token refresh failed.",
+                      "Re-run `python scripts/authorize_youtube.py` locally and update the GitHub secret `YOUTUBE_TOKEN_JSON` with the new `secrets/token.json`.",
+                  ]
+              )
+
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload workflow diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-shorts-diagnostics
+          if-no-files-found: ignore
+          path: |
+            out/upload_status.json
+            out/metadata.json
+
       - name: Record posted fact
         if: ${{ success() && env.YOUTUBE_TOKEN_JSON != '' && steps.upload_status.outputs.status == 'uploaded' }}
         run: python scripts/mark_posted.py
