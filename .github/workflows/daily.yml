@@ -31,18 +31,34 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Make video with edge-tts
-        id: make_video_edge
-        continue-on-error: true
-        env:
-          TTS_BACKEND: edge-tts
-        run: python scripts/make_video.py
+      - name: Make video
+        id: make_video
+        shell: bash
+        run: |
+          set +e
+          TTS_BACKEND=edge-tts python scripts/make_video.py > out/make_video_edge.log 2>&1
+          edge_status=$?
+          if [ "$edge_status" -eq 0 ]; then
+            {
+              echo "backend=edge-tts"
+              echo "edge_failed=false"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-      - name: Retry video build with open-jtalk
-        if: ${{ steps.make_video_edge.outcome == 'failure' }}
-        env:
-          TTS_BACKEND: open-jtalk
-        run: python scripts/make_video.py
+          TTS_BACKEND=open-jtalk python scripts/make_video.py > out/make_video_open_jtalk.log 2>&1
+          fallback_status=$?
+          if [ "$fallback_status" -ne 0 ]; then
+            cat out/make_video_edge.log
+            echo ""
+            cat out/make_video_open_jtalk.log
+            exit "$fallback_status"
+          fi
+
+          {
+            echo "backend=open-jtalk"
+            echo "edge_failed=true"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Prepare YouTube credentials
         if: ${{ env.YOUTUBE_TOKEN_JSON != '' }}
@@ -82,6 +98,9 @@ jobs:
       - name: Summarize upload result
         if: ${{ always() && env.YOUTUBE_TOKEN_JSON != '' }}
         shell: bash
+        env:
+          TTS_BACKEND_USED: ${{ steps.make_video.outputs.backend }}
+          EDGE_TTS_FAILED: ${{ steps.make_video.outputs.edge_failed }}
         run: |
           python - <<'PY'
           import json
@@ -104,12 +123,18 @@ jobs:
           source_title = payload.get("source_title", "")
           privacy_status = payload.get("privacyStatus", "")
           publish_at = payload.get("publishAt", "")
+          tts_backend = os.environ.get("TTS_BACKEND_USED", "")
+          edge_failed = os.environ.get("EDGE_TTS_FAILED", "")
 
           lines = [
               "## Upload status",
               "",
               f"- status: `{status}`",
           ]
+          if tts_backend:
+              lines.append(f"- tts_backend: `{tts_backend}`")
+          if edge_failed == "true":
+              lines.append("- edge_tts: `failed_then_fallback_to_open-jtalk`")
           if reason:
               lines.append(f"- reason: `{reason}`")
           if source_title:
@@ -156,6 +181,8 @@ jobs:
           name: daily-shorts-diagnostics
           if-no-files-found: ignore
           path: |
+            out/make_video_edge.log
+            out/make_video_open_jtalk.log
             out/upload_status.json
             out/metadata.json
 
