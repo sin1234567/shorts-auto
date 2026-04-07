@@ -31,7 +31,18 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python scripts/make_video.py
+      - name: Make video with edge-tts
+        id: make_video_edge
+        continue-on-error: true
+        env:
+          TTS_BACKEND: edge-tts
+        run: python scripts/make_video.py
+
+      - name: Retry video build with open-jtalk
+        if: ${{ steps.make_video_edge.outcome == 'failure' }}
+        env:
+          TTS_BACKEND: open-jtalk
+        run: python scripts/make_video.py
 
       - name: Prepare YouTube credentials
         if: ${{ env.YOUTUBE_TOKEN_JSON != '' }}
