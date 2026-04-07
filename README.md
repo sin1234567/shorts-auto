@@ -10,9 +10,9 @@ YouTube Shorts を毎日自動生成して投稿するリポジトリです。�
 ## 運用方針
 
 - 本番基準は Linux / GitHub Actions です。
-- Linux 本番では `open_jtalk` を正式採用します。
+- Linux 本番でも `edge-tts` を優先し、失敗時のみ `open-jtalk` を使います。
 - 音質改善は TTS エンジン差し替えより先に、台本制約・自動整形・短チャンク分割で対応します。
-- Windows の `edge-tts` はローカル補助経路です。本番品質の基準にはしません。
+- TTS は `edge-tts` を標準にし、Linux では失敗時のみ `open-jtalk` に fallback します。
 - コード、ワークフロー、ネタ設計、運用ルールを変えたときは、この README に同じターンで追記します。
 - 2026-03-19: Git 無し運用では YouTube 確認を基準にし、アップロード既定は `private` とします。確認後に公開または予約公開へ回します。
 - 2026-03-19: GitHub Actions の定期実行を再度有効化しました。ローカルの手動・予約投入と併用します。
@@ -79,7 +79,9 @@ shorts-auto/
 
 ### ローカル補助経路
 
-- Windows ローカルでは `edge-tts` を使用します
+- 音声生成は既定で `edge-tts` を使用します
+- Linux で `edge-tts` が失敗した場合のみ `open-jtalk` に fallback します
+- `TTS_BACKEND=edge-tts` または `TTS_BACKEND=open-jtalk` で明示切替できます
 - こちらも短チャンクごとに合成して結合します
 - ただし本番品質の判断基準は Linux 側です
 
@@ -181,6 +183,15 @@ python scripts/authorize_youtube.py
 
 - `scripts/upload_youtube.py` 実行時に `invalid_grant` が出た場合は、`out/upload_status.json` に `failed / tokenRevoked` を書きます
 - この状態では事前通知は来ない前提で、アップロード失敗時に再認証して復旧します
+
+GitHub Actions で `tokenRevoked` が出たときの最短復旧手順:
+
+1. ローカルで `python scripts/authorize_youtube.py` を実行する
+2. 更新された `secrets/token.json` の全文を repo secret `YOUTUBE_TOKEN_JSON` に貼り替える
+3. `daily.yml` を手動で再実行して `status: uploaded` を確認する
+
+- `gh auth login` は必須ではありません
+- `gh auth login` は GitHub Secret 更新や workflow 再実行を CLI で代行したいときだけ使います
 
 アップロード:
 

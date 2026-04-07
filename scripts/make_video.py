@@ -579,7 +579,18 @@ def split_tts_sentences(text: str) -> list[str]:
     return [chunk for chunk in chunks if chunk]
 
 
-def synthesize_voice_linux(text: str, out_path: Path) -> None:
+def get_tts_backend() -> str:
+    backend = os.environ.get("TTS_BACKEND", "edge-tts").strip().lower()
+    if backend in {"edge", "edge_tts"}:
+        return "edge-tts"
+    if backend in {"openjtalk", "open_jtalk"}:
+        return "open-jtalk"
+    if backend not in {"edge-tts", "open-jtalk"}:
+        raise RuntimeError(f"Unsupported TTS_BACKEND: {backend}")
+    return backend
+
+
+def synthesize_voice_open_jtalk(text: str, out_path: Path) -> None:
     sentences = split_tts_sentences(text)
     if not sentences:
         raise RuntimeError("No text available for Linux TTS synthesis.")
@@ -627,10 +638,10 @@ def synthesize_voice_linux(text: str, out_path: Path) -> None:
         )
 
 
-def synthesize_voice_windows(text: str, out_path: Path) -> None:
+def synthesize_voice_edge_tts(text: str, out_path: Path) -> None:
     sentences = split_tts_sentences(text)
     if not sentences:
-        raise RuntimeError("No text available for Windows TTS synthesis.")
+        raise RuntimeError("No text available for Edge TTS synthesis.")
 
     tmp_dir = OUT / f"_work_{uuid.uuid4().hex}"
     tmp_dir.mkdir(parents=True, exist_ok=False)
@@ -646,7 +657,7 @@ def synthesize_voice_windows(text: str, out_path: Path) -> None:
                     "-m",
                     "edge_tts",
                     "--voice",
-                    "ja-JP-NanamiNeural",
+                    os.environ.get("EDGE_TTS_VOICE", "ja-JP-NanamiNeural"),
                     "--rate",
                     EDGE_TTS_RATE,
                     "--text",
@@ -679,12 +690,22 @@ def synthesize_voice_windows(text: str, out_path: Path) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def synthesize_voice(text: str, out_path: Path) -> None:
-    if IS_WINDOWS:
-        synthesize_voice_windows(text, out_path)
-        return
+def synthesize_voice(text: str, out_path: Path) -> Path:
+    backend = get_tts_backend()
+    if backend == "edge-tts":
+        edge_out_path = out_path
+        if edge_out_path.suffix.lower() != ".mp3":
+            edge_out_path = OUT / "voice_raw.mp3"
+        try:
+            synthesize_voice_edge_tts(text, edge_out_path)
+            return edge_out_path
+        except Exception:
+            if IS_WINDOWS:
+                raise
+            print("warning: edge-tts failed, falling back to open-jtalk")
 
-    synthesize_voice_linux(text, out_path)
+    synthesize_voice_open_jtalk(text, out_path)
+    return out_path
 
 
 def normalize_voice(in_audio: Path, out_wav: Path) -> None:
