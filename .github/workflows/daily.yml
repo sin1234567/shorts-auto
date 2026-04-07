@@ -35,6 +35,7 @@ jobs:
         id: make_video
         shell: bash
         run: |
+          mkdir -p out
           set +e
           TTS_BACKEND=edge-tts python scripts/make_video.py > out/make_video_edge.log 2>&1
           edge_status=$?
