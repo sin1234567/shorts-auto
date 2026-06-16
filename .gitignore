@@ -1,5 +1,6 @@
 out/
 tests_tmp/
+backup/
 secrets/
 __pycache__/
 *.pyc

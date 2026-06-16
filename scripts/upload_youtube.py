@@ -20,6 +20,7 @@ STATUS = OUT / "upload_status.json"
 
 
 def write_status(status: str, **payload: str) -> None:
+    STATUS.parent.mkdir(parents=True, exist_ok=True)
     STATUS.write_text(json.dumps({"status": status, **payload}, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -41,15 +42,20 @@ def main() -> None:
     if STATUS.exists():
         STATUS.unlink()
 
+    metadata: dict[str, object] = {}
     if not VIDEO.exists():
+        write_status("failed", reason="videoNotFound")
         raise FileNotFoundError(f"Video not found: {VIDEO}")
 
     token_file = Path(os.environ.get("YOUTUBE_TOKEN_FILE", ROOT / "secrets" / "token.json"))
     if not token_file.exists():
+        write_status("failed", reason="tokenFileNotFound", token_file=str(token_file))
         raise FileNotFoundError(f"Token file not found: {token_file}")
 
     with open(METADATA, encoding="utf-8") as f:
         metadata = json.load(f)
+
+    source_title = str(metadata.get("source_title", ""))
 
     credentials = Credentials.from_authorized_user_file(str(token_file), SCOPES)
     try:
@@ -57,15 +63,15 @@ def main() -> None:
             credentials.refresh(Request())
     except Exception as exc:
         if is_token_revoked_error(exc):
-            write_status("failed", reason="tokenRevoked", source_title=metadata["source_title"])
+            write_status("failed", reason="tokenRevoked", source_title=source_title)
             raise RuntimeError(
                 "YouTube token refresh failed: token expired or revoked. Run scripts/authorize_youtube.py."
             ) from exc
-        write_status("failed", reason=type(exc).__name__, source_title=metadata["source_title"])
+        write_status("failed", reason=type(exc).__name__, source_title=source_title)
         raise
 
     if not credentials.valid:
-        write_status("failed", reason="invalidCredentials", source_title=metadata["source_title"])
+        write_status("failed", reason="invalidCredentials", source_title=source_title)
         raise RuntimeError("YouTube credentials are invalid. Recreate token.json with offline access.")
 
     youtube = build("youtube", "v3", credentials=credentials)
@@ -79,6 +85,13 @@ def main() -> None:
     }
     if publish_at:
         if privacy_status != "private":
+            write_status(
+                "failed",
+                reason="publishAtRequiresPrivate",
+                source_title=source_title,
+                privacyStatus=privacy_status,
+                publishAt=publish_at,
+            )
             raise RuntimeError("YOUTUBE_PUBLISH_AT requires YOUTUBE_PRIVACY_STATUS=private.")
         status_payload["publishAt"] = publish_at
 
@@ -102,14 +115,32 @@ def main() -> None:
             _, response = request.next_chunk()
     except Exception as exc:
         if is_upload_limit_error(exc):
-            write_status("blocked", reason="uploadLimitExceeded")
+            write_status(
+                "blocked",
+                reason="uploadLimitExceeded",
+                source_title=source_title,
+                privacyStatus=privacy_status,
+                publishAt=publish_at,
+            )
             print("Upload skipped: YouTube upload limit exceeded for this account/channel.")
             return
-        write_status("failed", reason=type(exc).__name__)
+        write_status(
+            "failed",
+            reason=type(exc).__name__,
+            source_title=source_title,
+            privacyStatus=privacy_status,
+            publishAt=publish_at,
+        )
         raise
 
-    write_status("uploaded", video_id=response["id"], source_title=metadata["source_title"])
-    record_posted_fact(metadata["source_title"])
+    write_status(
+        "uploaded",
+        video_id=response["id"],
+        source_title=source_title,
+        privacyStatus=privacy_status,
+        publishAt=publish_at,
+    )
+    record_posted_fact(source_title)
     print(f"Upload complete: https://www.youtube.com/watch?v={response['id']}")
 
 

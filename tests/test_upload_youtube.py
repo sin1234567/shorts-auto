@@ -30,6 +30,19 @@ def test_write_status_writes_expected_json(tmp_path, monkeypatch):
     }
 
 
+def test_write_status_creates_parent_directory(tmp_path, monkeypatch):
+    upload_youtube = load_upload_youtube_module()
+    status_file = tmp_path / "nested" / "upload_status.json"
+    monkeypatch.setattr(upload_youtube, "STATUS", status_file)
+
+    upload_youtube.write_status("failed", reason="tokenFileNotFound")
+
+    assert json.loads(status_file.read_text(encoding="utf-8")) == {
+        "status": "failed",
+        "reason": "tokenFileNotFound",
+    }
+
+
 def test_is_upload_limit_error_returns_true_for_limit_errors():
     upload_youtube = load_upload_youtube_module()
     http_exc = HttpError(
