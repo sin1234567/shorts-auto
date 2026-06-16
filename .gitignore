@@ -1,4 +1,5 @@
 out/
+tests_tmp/
 secrets/
 __pycache__/
 *.pyc

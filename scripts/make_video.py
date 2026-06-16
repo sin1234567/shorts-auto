@@ -17,6 +17,7 @@ DATA = ROOT / "data" / "facts.csv"
 POSTED = ROOT / "data" / "posted_facts.txt"
 OUT = ROOT / "out"
 OUT.mkdir(exist_ok=True)
+LATEST_FACT = OUT / "latest_fact.json"
 
 WIDTH = 1080
 HEIGHT = 1920
@@ -26,9 +27,13 @@ FONT = "C:/Windows/Fonts/NotoSansJP-Regular.ttf" if IS_WINDOWS else "/usr/share/
 VOICE_DICT = "/var/lib/mecab/dic/open-jtalk/naist-jdic"
 VOICE_MODEL = "/usr/share/hts-voice/nitech-jp-atr503-m001/nitech_jp_atr503_m001.htsvoice"
 VOICE_SPEED = "1.00"
-LEADING_SILENCE_MS = 180
-TRAILING_BUFFER_SEC = 0.8
-EDGE_TTS_RATE = "+12%"
+LEADING_SILENCE_MS = 150
+TRAILING_BUFFER_SEC = 0.50
+EDGE_TTS_RATE = "+10%"
+TTS_AUDIO_TEMPO = 1.00
+PART_SILENCE_THRESHOLD = "-55dB"
+TTS_FIRST_PAUSE_SEC = 0.40
+TTS_CHUNK_PAUSE_SEC = 0.26
 MAX_NARRATION_CHARS = 20
 
 CATEGORY_KEYWORDS = {
@@ -193,6 +198,34 @@ def load_posted_history() -> list[str]:
 
 def load_posted_titles() -> set[str]:
     return set(load_posted_history())
+
+
+def load_latest_fact(posted_titles: set[str]) -> dict[str, str] | None:
+    if os.environ.get("USE_LATEST_TOPIC", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return None
+    latest_path = Path(os.environ.get("LATEST_TOPIC_JSON", str(LATEST_FACT)))
+    if not latest_path.exists():
+        return None
+    try:
+        payload = json.loads(latest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid latest topic JSON: {latest_path}") from exc
+
+    title = str(payload.get("title", "")).strip()
+    body = str(payload.get("body", "")).strip()
+    if not title or not body:
+        raise RuntimeError(f"Latest topic JSON must contain title and body: {latest_path}")
+    if title in posted_titles:
+        print(f"latest topic already posted, falling back to facts.csv: {title}")
+        return None
+
+    category = str(payload.get("category", "")).strip() or infer_category(title, body)
+    fact = {"title": title, "body": body, "category": category}
+    for key in ("narration_title", "narration_body", "source_title", "source_url", "source_name", "published_at"):
+        value = str(payload.get(key, "")).strip()
+        if value:
+            fact[key] = value
+    return fact
 
 
 def infer_category(title: str, body: str) -> str:
@@ -427,8 +460,27 @@ def build_narration_lines(title: str, body: str, category: str) -> list[str]:
     body_lines = [segment for segment in re.split(r"(?<=[。！？])", normalize_narration_line(body)) if segment.strip()]
     detail_line = body_lines[1].strip() if len(body_lines) > 1 else ""
     analysis_line = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
+    hook_builder = globals().get("build_hook_line")
+    if callable(hook_builder):
+        hook_line = hook_builder(title)
+    else:
+        cleaned_title = title.strip("。 ")
+        opener = random.choice(HOOK_PATTERNS).format(title=cleaned_title)
+        if any(token in cleaned_title for token in ("ではない", "違う", "勝手に", "ただの")):
+            hook_line = f"{cleaned_title}。"
+        else:
+            short_topic = cleaned_title
+            for marker in ("は", "が"):
+                if marker in cleaned_title:
+                    short_topic = cleaned_title.split(marker, 1)[0]
+                    break
+            short_topic = short_topic.strip("、。 ")
+            if 0 < len(short_topic) <= 14:
+                hook_line = f"{opener}{short_topic}の話です。"
+            else:
+                hook_line = f"{opener}{cleaned_title}という話です。"
     base_lines = [
-        build_hook_line(title),
+        hook_line,
         body_lines[0].strip() if body_lines else normalize_narration_line(body),
         detail_line or analysis_line,
         "" if detail_line else analysis_line,
@@ -457,8 +509,8 @@ def build_narration_text(title: str, body: str, category: str) -> str:
 
 
 def build_hook_line(title: str) -> str:
-    opener = random.choice(HOOK_PATTERNS)
     cleaned_title = title.strip("。 ")
+    opener = random.choice(HOOK_PATTERNS).format(title=cleaned_title)
     if any(token in cleaned_title for token in ("ではない", "違う", "勝手に", "ただの")):
         return f"{cleaned_title}。"
     short_topic = cleaned_title
@@ -504,6 +556,20 @@ def normalize_display_text(text: str) -> str:
 
 def sanitize_tts_text(text: str) -> str:
     normalized = " ".join(text.split())
+    replacements = {
+        "AI": "エーアイ",
+        "SNS": "エスエヌエス",
+        "QR": "キューアール",
+        "IC": "アイシー",
+        "NASA": "ナサ",
+        "JAXA": "ジャクサ",
+        "iPhone": "アイフォン",
+    }
+    for before, after in replacements.items():
+        normalized = normalized.replace(before, after)
+    normalized = normalized.replace("「", "").replace("」", "")
+    normalized = normalized.replace("『", "").replace("』", "")
+    normalized = re.sub(r"[A-Za-z]{2,}", "", normalized)
     normalized = normalized.replace("。 ", "。")
     normalized = normalized.replace("! ", "。")
     normalized = normalized.replace("！", "。")
@@ -580,14 +646,78 @@ def split_tts_sentences(text: str) -> list[str]:
 
 
 def get_tts_backend() -> str:
-    backend = os.environ.get("TTS_BACKEND", "edge-tts").strip().lower()
+    backend = os.environ.get("TTS_BACKEND", "sapi" if IS_WINDOWS else "edge-tts").strip().lower()
     if backend in {"edge", "edge_tts"}:
         return "edge-tts"
+    if backend in {"melo", "melo_tts"}:
+        return "melo-tts"
     if backend in {"openjtalk", "open_jtalk"}:
         return "open-jtalk"
-    if backend not in {"edge-tts", "open-jtalk"}:
+    if backend in {"windows", "sapi5"}:
+        return "sapi"
+    if backend not in {"edge-tts", "melo-tts", "open-jtalk", "sapi"}:
         raise RuntimeError(f"Unsupported TTS_BACKEND: {backend}")
     return backend
+
+
+def trim_part_silence(in_audio: Path, out_audio: Path) -> None:
+    subprocess.run(
+        [
+            FFMPEG,
+            "-y",
+            "-i",
+            str(in_audio),
+            "-af",
+            (
+                "silenceremove=start_periods=1:start_duration=0.12:"
+                f"start_threshold={PART_SILENCE_THRESHOLD},"
+                "areverse,"
+                "silenceremove=start_periods=1:start_duration=0.30:"
+                f"start_threshold={PART_SILENCE_THRESHOLD},"
+                "areverse"
+            ),
+            str(out_audio),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def create_silence_wav(out_wav: Path, duration_sec: float) -> None:
+    subprocess.run(
+        [
+            FFMPEG,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=mono:sample_rate=48000",
+            "-t",
+            f"{duration_sec:.3f}",
+            "-c:a",
+            "pcm_s16le",
+            str(out_wav),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def append_pause_after_chunk(
+    concat_lines: list[str],
+    tmp_dir: Path,
+    *,
+    index: int,
+    is_last: bool,
+) -> None:
+    if is_last:
+        return
+    pause_sec = TTS_FIRST_PAUSE_SEC if index == 1 else TTS_CHUNK_PAUSE_SEC
+    pause_path = tmp_dir / f"pause_{index:03d}.wav"
+    create_silence_wav(pause_path, pause_sec)
+    concat_lines.append(f"file '{pause_path.as_posix()}'")
 
 
 def synthesize_voice_open_jtalk(text: str, out_path: Path) -> None:
@@ -601,6 +731,7 @@ def synthesize_voice_open_jtalk(text: str, out_path: Path) -> None:
         concat_lines: list[str] = []
 
         for index, sentence in enumerate(sentences, start=1):
+            raw_part_path = tmp_dir / f"part_{index:03d}_raw.wav"
             part_path = tmp_dir / f"part_{index:03d}.wav"
             subprocess.run(
                 [
@@ -612,12 +743,14 @@ def synthesize_voice_open_jtalk(text: str, out_path: Path) -> None:
                     "-r",
                     VOICE_SPEED,
                     "-ow",
-                    str(part_path),
+                    str(raw_part_path),
                 ],
                 input=sentence.encode("utf-8"),
                 check=True,
             )
+            trim_part_silence(raw_part_path, part_path)
             concat_lines.append(f"file '{part_path.as_posix()}'")
+            append_pause_after_chunk(concat_lines, tmp_dir, index=index, is_last=index == len(sentences))
 
         concat_list.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
         subprocess.run(
@@ -650,7 +783,8 @@ def synthesize_voice_edge_tts(text: str, out_path: Path) -> None:
         concat_lines: list[str] = []
 
         for index, sentence in enumerate(sentences, start=1):
-            part_path = tmp_dir / f"part_{index:03d}.mp3"
+            raw_part_path = tmp_dir / f"part_{index:03d}_raw.mp3"
+            part_path = tmp_dir / f"part_{index:03d}.wav"
             subprocess.run(
                 [
                     "python",
@@ -663,11 +797,13 @@ def synthesize_voice_edge_tts(text: str, out_path: Path) -> None:
                     "--text",
                     sentence,
                     "--write-media",
-                    str(part_path),
+                    str(raw_part_path),
                 ],
                 check=True,
             )
+            trim_part_silence(raw_part_path, part_path)
             concat_lines.append(f"file '{part_path.as_posix()}'")
+            append_pause_after_chunk(concat_lines, tmp_dir, index=index, is_last=index == len(sentences))
 
         concat_list.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
         subprocess.run(
@@ -680,8 +816,8 @@ def synthesize_voice_edge_tts(text: str, out_path: Path) -> None:
                 "0",
                 "-i",
                 str(concat_list),
-                "-c",
-                "copy",
+                "-c:a",
+                "pcm_s16le",
                 str(out_path),
             ],
             check=True,
@@ -690,12 +826,82 @@ def synthesize_voice_edge_tts(text: str, out_path: Path) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def synthesize_voice_melo_tts(text: str, out_path: Path) -> None:
+    sentences = split_tts_sentences(text)
+    if not sentences:
+        raise RuntimeError("No text available for MeloTTS synthesis.")
+
+    try:
+        from melo.api import TTS
+    except ImportError as exc:
+        raise RuntimeError(
+            "MeloTTS is not installed. Install it separately before using TTS_BACKEND=melo-tts."
+        ) from exc
+
+    device = os.environ.get("MELO_DEVICE", "cpu")
+    language = os.environ.get("MELO_LANGUAGE", "JP")
+    speed = float(os.environ.get("MELO_SPEED", "1.0"))
+    speaker_name = os.environ.get("MELO_SPEAKER", "").strip()
+
+    model = TTS(language=language, device=device)
+    speaker_ids = model.hps.data.spk2id
+
+    if speaker_name:
+        if speaker_name not in speaker_ids:
+            available = ", ".join(sorted(speaker_ids))
+            raise RuntimeError(f"Unknown MELO_SPEAKER={speaker_name}. Available speakers: {available}")
+        speaker_id = speaker_ids[speaker_name]
+    else:
+        preferred = [name for name in speaker_ids if name == language or name.startswith(f"{language}-")]
+        if preferred:
+            speaker_id = speaker_ids[preferred[0]]
+        else:
+            first_name = next(iter(speaker_ids))
+            speaker_id = speaker_ids[first_name]
+
+    model.tts_to_file(" ".join(sentences), speaker_id, str(out_path), speed=speed)
+
+
+def synthesize_voice_sapi(text: str, out_path: Path) -> None:
+    if not IS_WINDOWS:
+        raise RuntimeError("TTS_BACKEND=sapi is only available on Windows.")
+    text_path = OUT / "sapi_input.txt"
+    text_path.write_text(text, encoding="utf-8")
+    voice_name = os.environ.get("SAPI_VOICE", "Microsoft Haruka Desktop")
+    rate = os.environ.get("SAPI_RATE", "0")
+    volume = os.environ.get("SAPI_VOLUME", "88")
+    script = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        f"$synth.SelectVoice('{voice_name}'); "
+        f"$synth.Rate = {rate}; "
+        f"$synth.Volume = {volume}; "
+        f"$text = Get-Content -LiteralPath '{str(text_path)}' -Raw -Encoding UTF8; "
+        f"$synth.SetOutputToWaveFile('{str(out_path)}'); "
+        "$synth.Speak($text); "
+        "$synth.Dispose();"
+    )
+    subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def synthesize_voice(text: str, out_path: Path) -> Path:
     backend = get_tts_backend()
+    if backend == "sapi":
+        sapi_out_path = out_path
+        if sapi_out_path.suffix.lower() != ".wav":
+            sapi_out_path = OUT / "voice_raw.wav"
+        synthesize_voice_sapi(text, sapi_out_path)
+        return sapi_out_path
+
     if backend == "edge-tts":
         edge_out_path = out_path
-        if edge_out_path.suffix.lower() != ".mp3":
-            edge_out_path = OUT / "voice_raw.mp3"
+        if edge_out_path.suffix.lower() != ".wav":
+            edge_out_path = OUT / "voice_raw.wav"
         try:
             synthesize_voice_edge_tts(text, edge_out_path)
             return edge_out_path
@@ -704,11 +910,21 @@ def synthesize_voice(text: str, out_path: Path) -> Path:
                 raise
             print("warning: edge-tts failed, falling back to open-jtalk")
 
+    if backend == "melo-tts":
+        melo_out_path = out_path
+        if melo_out_path.suffix.lower() != ".wav":
+            melo_out_path = OUT / "voice_raw.wav"
+        synthesize_voice_melo_tts(text, melo_out_path)
+        return melo_out_path
+
     synthesize_voice_open_jtalk(text, out_path)
     return out_path
 
 
 def normalize_voice(in_audio: Path, out_wav: Path) -> None:
+    audio_filters = ["aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=mono"]
+    if TTS_AUDIO_TEMPO != 1.0:
+        audio_filters.append(f"atempo={TTS_AUDIO_TEMPO:.3f}")
     subprocess.run(
         [
             FFMPEG,
@@ -717,7 +933,7 @@ def normalize_voice(in_audio: Path, out_wav: Path) -> None:
             str(in_audio),
             "-vn",
             "-af",
-            "aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=mono",
+            ",".join(audio_filters),
             "-c:a",
             "pcm_s16le",
             str(out_wav),
@@ -760,7 +976,7 @@ def trim_trailing_silence(in_wav: Path, out_wav: Path) -> None:
     )
 
 
-def add_trailing_silence(in_wav: Path, out_wav: Path, pad_sec: float = 0.75) -> None:
+def add_trailing_silence(in_wav: Path, out_wav: Path, pad_sec: float = 0.85) -> None:
     subprocess.run(
         [
             FFMPEG,
@@ -825,174 +1041,184 @@ def get_audio_stream_info(path: Path) -> dict[str, str]:
     return streams[0]
 
 
-facts = load_facts()
-posted_history = load_posted_history()
-posted_titles = load_posted_titles()
-fact = choose_fact(facts, posted_titles, posted_history)
-title = fact["title"]
-body = fact["body"]
-category = fact["category"]
-theme = random.choice(THEMES)
-sections = build_script(title, body, category)
-if IS_WINDOWS:
-    sections = [title, body]
-narration_text = build_narration_text(title, body, category)
-tts_text = sanitize_tts_text(to_tts_text(narration_text))
-tts_input_text = sanitize_tts_text(narration_text) if IS_WINDOWS else tts_text
+def main() -> None:
+    facts = load_facts()
+    posted_history = load_posted_history()
+    posted_titles = load_posted_titles()
+    fact = load_latest_fact(posted_titles) or choose_fact(facts, posted_titles, posted_history)
+    title = fact["title"]
+    body = fact["body"]
+    category = fact["category"]
+    narration_title = fact.get("narration_title", title)
+    narration_body = fact.get("narration_body", body)
+    theme = random.choice(THEMES)
+    sections = build_script(narration_title, narration_body, category)
+    if IS_WINDOWS:
+        sections = [narration_title, narration_body]
+    narration_text = build_narration_text(narration_title, narration_body, category)
+    tts_text = sanitize_tts_text(to_tts_text(narration_text))
+    tts_input_text = sanitize_tts_text(narration_text) if IS_WINDOWS else tts_text
 
-print("selected:", title)
+    print("selected:", title)
 
-raw_voice_wav = OUT / "voice_raw.wav"
-raw_voice_mp3 = OUT / "voice_raw.mp3"
-voice_wav = OUT / "voice.wav"
-voice_padded_wav = OUT / "voice_padded.wav"
-voice_trimmed_wav = OUT / "voice_trimmed.wav"
-voice_final_wav = OUT / "voice_final.wav"
-synthesize_voice(tts_input_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
-normalize_voice(raw_voice_mp3 if IS_WINDOWS else raw_voice_wav, voice_wav)
-add_leading_silence(voice_wav, voice_padded_wav)
-trim_trailing_silence(voice_padded_wav, voice_trimmed_wav)
-add_trailing_silence(voice_trimmed_wav, voice_final_wav)
-audio_info = get_audio_stream_info(voice_final_wav)
-if audio_info.get("sample_rate") != "48000" or audio_info.get("channels") != 1:
-    raise RuntimeError(f"Unexpected normalized audio format: {audio_info}")
-audio_duration = get_media_duration(voice_final_wav)
-video_duration = calculate_video_duration(audio_duration)
+    voice_wav = OUT / "voice.wav"
+    voice_padded_wav = OUT / "voice_padded.wav"
+    voice_trimmed_wav = OUT / "voice_trimmed.wav"
+    voice_final_wav = OUT / "voice_final.wav"
+    raw_voice_wav = OUT / "voice_raw.wav"
+    raw_voice_mp3 = OUT / "voice_raw.mp3"
+    raw_voice = synthesize_voice(tts_input_text, raw_voice_mp3 if IS_WINDOWS else raw_voice_wav)
+    normalize_voice(raw_voice, voice_wav)
+    add_leading_silence(voice_wav, voice_padded_wav)
+    trim_trailing_silence(voice_padded_wav, voice_trimmed_wav)
+    add_trailing_silence(voice_trimmed_wav, voice_final_wav)
+    audio_info = get_audio_stream_info(voice_final_wav)
+    if audio_info.get("sample_rate") != "48000" or audio_info.get("channels") != 1:
+        raise RuntimeError(f"Unexpected normalized audio format: {audio_info}")
+    audio_duration = get_media_duration(voice_final_wav)
+    video_duration = calculate_video_duration(audio_duration)
 
-header_file = OUT / "header.txt"
-title_file = OUT / "title.txt"
-footer_file = OUT / "footer.txt"
-subfooter_file = OUT / "subfooter.txt"
-narration_tts_file = OUT / "narration_tts.txt"
+    header_file = OUT / "header.txt"
+    title_file = OUT / "title.txt"
+    footer_file = OUT / "footer.txt"
+    subfooter_file = OUT / "subfooter.txt"
+    narration_tts_file = OUT / "narration_tts.txt"
 
-write_display_text(header_file, random.choice(HEADER_PATTERNS))
-write_display_text(title_file, wrap_text(title, 12))
-write_display_text(footer_file, random.choice(FOOTER_PATTERNS))
-write_display_text(subfooter_file, random.choice(SUBFOOTER_PATTERNS))
-write_display_text(narration_tts_file, tts_input_text)
+    write_display_text(header_file, random.choice(HEADER_PATTERNS))
+    write_display_text(title_file, wrap_text(title, 12))
+    write_display_text(footer_file, random.choice(FOOTER_PATTERNS))
+    write_display_text(subfooter_file, random.choice(SUBFOOTER_PATTERNS))
+    write_display_text(narration_tts_file, tts_input_text)
 
-header_path = escape_path(str(header_file))
-footer_path = escape_path(str(footer_file))
-subfooter_path = escape_path(str(subfooter_file))
-font_path = escape_path(FONT)
+    header_path = escape_path(str(header_file))
+    footer_path = escape_path(str(footer_file))
+    subfooter_path = escape_path(str(subfooter_file))
+    font_path = escape_path(FONT)
 
-section_filters = []
-start_time = min(2.2, max(0.9, video_duration * 0.1))
-usable_time = max(2.4, video_duration - start_time - TRAILING_BUFFER_SEC)
-segment = usable_time / len(sections)
+    section_filters = []
+    start_time = min(2.2, max(0.9, video_duration * 0.1))
+    usable_time = max(2.4, video_duration - start_time - TRAILING_BUFFER_SEC)
+    segment = usable_time / len(sections)
 
-for index, section in enumerate(sections):
-    start = start_time + index * segment
-    end = start_time + (index + 1) * segment - 0.25
-    condensed = wrap_text(section, 14).splitlines()[:3]
-    section_filters.extend(
-        build_text_filters(
-            f"section_{index + 1}",
-            "\n".join(condensed),
-            font_path,
-            fontcolor="0xf8fafc",
-            fontsize=44,
-            x_expr="90",
-            y_start=980,
-            line_gap=58,
-            enable=f"between(t,{start:.2f},{end:.2f})",
-            extra="line_spacing=14",
+    for index, section in enumerate(sections):
+        start = start_time + index * segment
+        end = start_time + (index + 1) * segment - 0.25
+        condensed = wrap_text(section, 14).splitlines()[:3]
+        section_filters.extend(
+            build_text_filters(
+                f"section_{index + 1}",
+                "\n".join(condensed),
+                font_path,
+                fontcolor="0xf8fafc",
+                fontsize=44,
+                x_expr="90",
+                y_start=980,
+                line_gap=58,
+                enable=f"between(t,{start:.2f},{end:.2f})",
+                extra="line_spacing=14",
+            )
         )
-    )
 
-subtitle_filters = []
-subtitle_chunks = split_tts_sentences(tts_input_text)
-subtitle_start = LEADING_SILENCE_MS / 1000
-subtitle_duration = max(1.2, audio_duration - subtitle_start)
-subtitle_segment = subtitle_duration / max(1, len(subtitle_chunks))
+    subtitle_filters = []
+    subtitle_chunks = split_tts_sentences(tts_input_text)
+    subtitle_start = LEADING_SILENCE_MS / 1000
+    subtitle_duration = max(1.2, audio_duration - subtitle_start)
+    subtitle_segment = subtitle_duration / max(1, len(subtitle_chunks))
 
-for index, chunk in enumerate(subtitle_chunks):
-    subtitle_text = "\n".join(wrap_text(chunk, 16).splitlines()[:2])
-    start = subtitle_start + index * subtitle_segment
-    end = min(video_duration - 0.1, subtitle_start + (index + 1) * subtitle_segment)
-    subtitle_filters.append(
-        f"drawbox=x=70:y=1390:w=940:h=250:color=0x020617c8:t=fill:enable='between(t,{start:.2f},{end:.2f})'"
-    )
-    subtitle_filters.append(
-        f"drawbox=x=70:y=1390:w=940:h=4:color={theme['accent']}:t=fill:enable='between(t,{start:.2f},{end:.2f})'"
-    )
-    subtitle_filters.extend(
-        build_text_filters(
-            f"subtitle_{index + 1:02d}",
-            subtitle_text,
+    for index, chunk in enumerate(subtitle_chunks):
+        subtitle_text = "\n".join(wrap_text(chunk, 16).splitlines()[:2])
+        start = subtitle_start + index * subtitle_segment
+        end = min(video_duration - 0.1, subtitle_start + (index + 1) * subtitle_segment)
+        subtitle_filters.append(
+            f"drawbox=x=70:y=1390:w=940:h=250:color=0x020617c8:t=fill:enable='between(t,{start:.2f},{end:.2f})'"
+        )
+        subtitle_filters.append(
+            f"drawbox=x=70:y=1390:w=940:h=4:color={theme['accent']}:t=fill:enable='between(t,{start:.2f},{end:.2f})'"
+        )
+        subtitle_filters.extend(
+            build_text_filters(
+                f"subtitle_{index + 1:02d}",
+                subtitle_text,
+                font_path,
+                fontcolor="white",
+                fontsize=58,
+                x_expr="(w-text_w)/2",
+                y_start=1466,
+                line_gap=78,
+                enable=f"between(t,{start:.2f},{end:.2f})",
+                extra="line_spacing=20:borderw=2.5:bordercolor=0x020617",
+            )
+        )
+
+    filter_parts = [
+        "format=yuv420p",
+        f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill",
+        f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill",
+        f"drawtext=fontfile='{font_path}':textfile='{header_path}':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=180",
+        *build_text_filters(
+            "title",
+            wrap_text(title, 12),
             font_path,
             fontcolor="white",
-            fontsize=58,
-            x_expr="(w-text_w)/2",
-            y_start=1466,
-            line_gap=78,
-            enable=f"between(t,{start:.2f},{end:.2f})",
-            extra="line_spacing=20:borderw=2.5:bordercolor=0x020617",
-        )
+            fontsize=74,
+            x_expr="90",
+            y_start=360,
+            line_gap=92,
+            extra="line_spacing=18",
+        ),
+        *section_filters,
+        *subtitle_filters,
+        f"drawtext=fontfile='{font_path}':textfile='{footer_path}':fontcolor=0xfcd34d:fontsize=36:x=(w-text_w)/2:y=1680",
+        f"drawtext=fontfile='{font_path}':textfile='{subfooter_path}':fontcolor=0x94a3b8:fontsize=32:x=(w-text_w)/2:y=1760",
+    ]
+    filter_graph = ",".join(filter_parts)
+
+    subprocess.run(
+        [
+            FFMPEG,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:r={FPS}:d={video_duration}",
+            "-i",
+            str(voice_final_wav),
+            "-vf",
+            filter_graph,
+            "-r",
+            str(FPS),
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-pix_fmt",
+            "yuv420p",
+            "-t",
+            f"{video_duration:.2f}",
+            str(OUT / "short.mp4"),
+        ],
+        check=True,
     )
 
-filter_parts = [
-    "format=yuv420p",
-    f"drawbox=x=50:y=100:w=980:h=1720:color={theme['card']}:t=fill",
-    f"drawbox=x=50:y=100:w=980:h=20:color={theme['accent']}:t=fill",
-    f"drawtext=fontfile='{font_path}':textfile='{header_path}':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=180",
-    *build_text_filters(
-        "title",
-        wrap_text(title, 12),
-        font_path,
-        fontcolor="white",
-        fontsize=74,
-        x_expr="90",
-        y_start=360,
-        line_gap=92,
-        extra="line_spacing=18",
-    ),
-    *section_filters,
-    *subtitle_filters,
-    f"drawtext=fontfile='{font_path}':textfile='{footer_path}':fontcolor=0xfcd34d:fontsize=36:x=(w-text_w)/2:y=1680",
-    f"drawtext=fontfile='{font_path}':textfile='{subfooter_path}':fontcolor=0x94a3b8:fontsize=32:x=(w-text_w)/2:y=1760",
-]
-filter_graph = ",".join(filter_parts)
+    metadata = {
+        "title": random.choice(TITLE_PATTERNS).format(title=title),
+        "description": f"{narration_text}\n\n毎日1本の雑学ショート\n#" + " #".join(CATEGORY_TAGS.get(category, random.choice(TAG_SETS))),
+        "tags": CATEGORY_TAGS.get(category, random.choice(TAG_SETS)),
+        "source_title": title,
+        "category": category,
+    }
+    for key in ("source_url", "source_name", "published_at"):
+        if fact.get(key):
+            metadata[key] = fact[key]
 
-subprocess.run(
-    [
-        FFMPEG,
-        "-y",
-        "-f",
-        "lavfi",
-        "-i",
-        f"color=c={theme['bg']}:s={WIDTH}x{HEIGHT}:r={FPS}:d={video_duration}",
-        "-i",
-        str(voice_final_wav),
-        "-vf",
-        filter_graph,
-        "-r",
-        str(FPS),
-        "-c:v",
-        "libx264",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-pix_fmt",
-        "yuv420p",
-        "-t",
-        f"{video_duration:.2f}",
-        str(OUT / "short.mp4"),
-    ],
-    check=True,
-)
+    with open(OUT / "metadata.json", "w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-metadata = {
-    "title": random.choice(TITLE_PATTERNS).format(title=title),
-    "description": f"{narration_text}\n\n毎日1本の雑学ショート\n#" + " #".join(CATEGORY_TAGS.get(category, random.choice(TAG_SETS))),
-    "tags": CATEGORY_TAGS.get(category, random.choice(TAG_SETS)),
-    "source_title": title,
-    "category": category,
-}
+    print("preview audio:", voice_trimmed_wav)
+    print("preview text:", narration_tts_file)
 
-with open(OUT / "metadata.json", "w", encoding="utf-8") as f:
-    json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-print("preview audio:", voice_trimmed_wav)
-print("preview text:", narration_tts_file)
+if __name__ == "__main__":
+    main()

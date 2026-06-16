@@ -7,7 +7,7 @@ def load_get_tts_backend():
     source_path = Path(__file__).resolve().parents[1] / "scripts" / "make_video.py"
     module = ast.parse(source_path.read_text(encoding="utf-8"))
     selected = [node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "get_tts_backend"]
-    namespace = {"__builtins__": __builtins__, "os": os}
+    namespace = {"__builtins__": __builtins__, "os": os, "IS_WINDOWS": os.name == "nt"}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
     return namespace["get_tts_backend"]
 
@@ -16,7 +16,7 @@ def test_get_tts_backend_defaults_to_edge_tts(monkeypatch):
     monkeypatch.delenv("TTS_BACKEND", raising=False)
     get_tts_backend = load_get_tts_backend()
 
-    assert get_tts_backend() == "edge-tts"
+    assert get_tts_backend() == ("sapi" if os.name == "nt" else "edge-tts")
 
 
 def test_get_tts_backend_accepts_open_jtalk_alias(monkeypatch):
@@ -24,6 +24,20 @@ def test_get_tts_backend_accepts_open_jtalk_alias(monkeypatch):
     get_tts_backend = load_get_tts_backend()
 
     assert get_tts_backend() == "open-jtalk"
+
+
+def test_get_tts_backend_accepts_melo_alias(monkeypatch):
+    monkeypatch.setenv("TTS_BACKEND", "melo")
+    get_tts_backend = load_get_tts_backend()
+
+    assert get_tts_backend() == "melo-tts"
+
+
+def test_get_tts_backend_accepts_sapi_alias(monkeypatch):
+    monkeypatch.setenv("TTS_BACKEND", "sapi5")
+    get_tts_backend = load_get_tts_backend()
+
+    assert get_tts_backend() == "sapi"
 
 
 def test_get_tts_backend_rejects_unknown_values(monkeypatch):

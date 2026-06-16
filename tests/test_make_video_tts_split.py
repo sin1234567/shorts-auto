@@ -1,4 +1,5 @@
 import ast
+import re
 from pathlib import Path
 
 
@@ -9,7 +10,7 @@ def load_split_tts_sentences():
     names = {"sanitize_tts_text", "split_tts_sentences"}
     selected = [node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in names]
 
-    namespace = {"__builtins__": __builtins__}
+    namespace = {"__builtins__": __builtins__, "re": re}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
     return namespace["split_tts_sentences"]
 
@@ -29,3 +30,14 @@ def test_split_tts_sentences_breaks_long_clause_at_commas():
 
     assert len(chunks) >= 2
     assert all(chunk.endswith("、") or chunk.endswith("。") for chunk in chunks)
+
+
+def test_split_tts_sentences_rewrites_hard_to_read_letters():
+    split_tts_sentences = load_split_tts_sentences()
+
+    chunks = split_tts_sentences("AIとSNSの話です。")
+
+    joined = "".join(chunks)
+    assert "エーアイ" in joined
+    assert "エスエヌエス" in joined
+    assert "AI" not in joined

@@ -18,6 +18,10 @@ YouTube Shorts を毎日自動生成して投稿するリポジトリです。�
 - 2026-03-19: GitHub Actions の定期実行を再度有効化しました。ローカルの手動・予約投入と併用します。
 - 2026-03-27: 直近の再生数分析では `身近な物 + 意外な事実` が強かったため、比較用に同系統の新ネタを3本追加しました。公開時刻は `12:00 JST` で固定し、しばらくはテーマと尺の差を優先して見ます。
 - 2026-04-01: テスト実行は `tests/` に限定し、Windows では `tests_tmp/` を使って一時ディレクトリ権限の不安定さを避けます。`upload_status.json` は失敗時も `source_title` と公開設定を残すようにしました。
+- 2026-04-15: YouTube 認証トークンを更新しました。現在の運用はテスト用アカウント前提ではなく、GitHub Secret `YOUTUBE_TOKEN_JSON` の最新値を基準にします。
+- 2026-04-15: `facts.csv` に動物・植物・自然・人体・日用品を中心に 500 件以上の新ネタを追加しました。既存タイトルの重複は解消済みです。
+- 2026-06-16: YouTube Studio の過去28日分析では、身近な人体、日用品、光・熱・お金系の短い疑問タイトルが比較的強かったため、同系統の新ネタを追加しました。長さは短め、本文は仕組みを1つ入れる方針を維持します。
+- 2026-06-16: 最新話題を優先するため、動画生成前に `scripts/fetch_latest_topic.py` を実行します。取得できた場合は `USE_LATEST_TOPIC=1` で `out/latest_fact.json` をCSVより優先し、取得失敗や不適合な話題の場合は通常の `facts.csv` 運用へ戻します。
 
 ## 構成
 
@@ -79,11 +83,22 @@ shorts-auto/
 
 ### ローカル補助経路
 
-- 音声生成は既定で `edge-tts` を使用します
-- Linux で `edge-tts` が失敗した場合のみ `open-jtalk` に fallback します
-- `TTS_BACKEND=edge-tts` または `TTS_BACKEND=open-jtalk` で明示切替できます
+- Windows ローカルの音声生成は既定で `sapi` を使用します
+- GitHub Actions 本番の音声生成は `open-jtalk` を優先し、失敗時のみ `edge-tts` に fallback します
+- `TTS_BACKEND=melo-tts` で `MeloTTS` をローカル検証できます
+- `TTS_BACKEND=sapi`、`TTS_BACKEND=edge-tts`、`TTS_BACKEND=open-jtalk` で明示切替できます
 - こちらも短チャンクごとに合成して結合します
 - ただし本番品質の判断基準は Linux 側です
+
+`MeloTTS` の検証用 env:
+
+- `TTS_BACKEND=melo-tts`
+- `MELO_DEVICE=cpu`
+- `MELO_LANGUAGE=JP`
+- `MELO_SPEAKER=JP` または空欄で自動選択
+- `MELO_SPEED=1.0`
+
+- `MeloTTS` は標準依存には入れていません。ローカルで別途インストールして試します
 
 ### 台本制約
 
@@ -150,6 +165,18 @@ $env:FACT_TITLE = "消しゴムのかすはただのゴミではない"
 python scripts/make_video.py
 ```
 
+最新話題を検索してすぐ生成:
+
+```powershell
+python scripts/fetch_latest_topic.py
+$env:USE_LATEST_TOPIC = "1"
+python scripts/make_video.py
+```
+
+- 最新話題は Google News RSS の24時間以内から取得します
+- 政治、事件、事故、訃報などは除外し、科学、健康、生活、気象、技術寄りを優先します
+- 取得結果は [latest_fact.json](C:/Users/fillm/shorts-auto/out/latest_fact.json) に保存されます
+
 YouTube へ手動アップロードした場合:
 
 ```bash
@@ -189,6 +216,8 @@ GitHub Actions で `tokenRevoked` が出たときの最短復旧手順:
 1. ローカルで `python scripts/authorize_youtube.py` を実行する
 2. 更新された `secrets/token.json` の全文を repo secret `YOUTUBE_TOKEN_JSON` に貼り替える
 3. `daily.yml` を手動で再実行して `status: uploaded` を確認する
+
+- 2026-04-15 時点ではトークン更新済みです。次回以降は `tokenRevoked` が出たときだけ同じ手順で更新します
 
 - `gh auth login` は必須ではありません
 - `gh auth login` は GitHub Secret 更新や workflow 再実行を CLI で代行したいときだけ使います

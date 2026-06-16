@@ -19,11 +19,13 @@ jobs:
       YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - run: sudo add-apt-repository -y multiverse
       - run: sudo apt-get update
@@ -31,34 +33,38 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Fetch latest topic
+        continue-on-error: true
+        run: python scripts/fetch_latest_topic.py
+
       - name: Make video
         id: make_video
         shell: bash
         run: |
           mkdir -p out
           set +e
-          TTS_BACKEND=edge-tts python scripts/make_video.py > out/make_video_edge.log 2>&1
-          edge_status=$?
-          if [ "$edge_status" -eq 0 ]; then
+          USE_LATEST_TOPIC=1 TTS_BACKEND=open-jtalk python scripts/make_video.py > out/make_video_open_jtalk.log 2>&1
+          open_jtalk_status=$?
+          if [ "$open_jtalk_status" -eq 0 ]; then
             {
-              echo "backend=edge-tts"
+              echo "backend=open-jtalk"
               echo "edge_failed=false"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          TTS_BACKEND=open-jtalk python scripts/make_video.py > out/make_video_open_jtalk.log 2>&1
-          fallback_status=$?
-          if [ "$fallback_status" -ne 0 ]; then
-            cat out/make_video_edge.log
-            echo ""
+          USE_LATEST_TOPIC=1 TTS_BACKEND=edge-tts python scripts/make_video.py > out/make_video_edge.log 2>&1
+          edge_status=$?
+          if [ "$edge_status" -ne 0 ]; then
             cat out/make_video_open_jtalk.log
-            exit "$fallback_status"
+            echo ""
+            cat out/make_video_edge.log
+            exit "$edge_status"
           fi
 
           {
-            echo "backend=open-jtalk"
-            echo "edge_failed=true"
+            echo "backend=edge-tts"
+            echo "edge_failed=false"
           } >> "$GITHUB_OUTPUT"
 
       - name: Prepare YouTube credentials
@@ -175,9 +181,9 @@ jobs:
           raise SystemExit(f"Upload failed: reason={reason} source_title={source_title}")
           PY
 
-      - name: Upload workflow diagnostics
+      - name: Upload diagnostics
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: daily-shorts-diagnostics
           if-no-files-found: ignore
