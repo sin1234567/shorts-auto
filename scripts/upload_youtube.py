@@ -38,6 +38,12 @@ def is_token_revoked_error(exc: Exception) -> bool:
     return "invalid_grant" in message and ("expired or revoked" in message or "revoked" in message)
 
 
+def sanitize_youtube_text(value: object) -> str:
+    """Return text accepted by YouTube's title/description fields."""
+    text = str(value).replace("<", "＜").replace(">", "＞")
+    return "".join(char for char in text if char in "\n\r\t" or ord(char) >= 32)
+
+
 def main() -> None:
     if STATUS.exists():
         STATUS.unlink()
@@ -99,8 +105,8 @@ def main() -> None:
         part="snippet,status",
         body={
             "snippet": {
-                "title": metadata["title"],
-                "description": metadata.get("description", ""),
+                "title": sanitize_youtube_text(metadata["title"]),
+                "description": sanitize_youtube_text(metadata.get("description", "")),
                 "tags": tags,
                 "categoryId": os.environ.get("YOUTUBE_CATEGORY_ID", "22"),
             },

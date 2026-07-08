@@ -45,6 +45,43 @@ CATEGORY_KEYWORDS = {
     "科学": ["科学", "研究", "AI", "新技術", "電池", "ロボット", "半導体", "量子", "発見"],
 }
 
+LOW_INFORMATION_PATTERNS = [
+    r"動意株",
+    r"注目すべき\d+つ",
+    r"第\d+回",
+    r"開催しました",
+    r"登壇・?ブース出展",
+]
+
+PROMOTIONAL_SOURCES = ("PR TIMES", "アットプレス", "キャンプファイヤー")
+
+CATEGORY_CONTEXT = {
+    "人体": (
+        "まず確認したいのは、誰を対象に、どの程度の効果が確認されたのかです。"
+        "少人数の研究と、多くの人で確かめた結果では、情報の確かさが違います。"
+        "研究段階なのか、すでに実用化されているのかも分けて考える必要があります。"
+        "健康に関する判断は、見出しだけで決めず、医療機関や公的機関の説明も確認してください。"
+    ),
+    "宇宙": (
+        "まず押さえたいのは、観測や実験で確認できた事実と、今後の予測は別だという点です。"
+        "新しいデータが加わると、天体の成り立ちや宇宙環境の理解が更新されることがあります。"
+        "距離や時間の尺度が日常とは大きく違うため、数字の単位まで見ると内容を理解しやすくなります。"
+        "続報では、別の観測でも同じ結果が得られるかが重要になります。"
+    ),
+    "地球": (
+        "まず押さえたいのは、一日の変化と長期的な傾向は別だという点です。"
+        "気温や雨量などは、地域と観測期間によって意味が変わります。"
+        "原因を考えるときは、一つの現象だけでなく、海や大気など複数の要素を見る必要があります。"
+        "生活への影響は地域ごとに違うため、実際の行動では自治体や気象機関の最新情報を確認してください。"
+    ),
+    "科学": (
+        "まず押さえたいのは、新しくできるようになったことと、まだできないことの境界です。"
+        "試作品の成功と、誰でも使える実用化では、必要な時間や費用が大きく違います。"
+        "性能だけでなく、安全性や利用条件、仕事の分担がどう変わるかも重要です。"
+        "続報では、実際の導入時期と、第三者による検証結果に注目すると内容を判断しやすくなります。"
+    ),
+}
+
 
 @dataclass
 class NewsItem:
@@ -146,7 +183,31 @@ def is_usable(item: NewsItem, cutoff: datetime) -> bool:
     if item.published_at < cutoff:
         return False
     text = f"{item.title} {item.source}"
-    return not any(keyword in text for keyword in BLOCKED_KEYWORDS)
+    if any(keyword in text for keyword in BLOCKED_KEYWORDS):
+        return False
+    if any(source.lower() in item.source.lower() for source in PROMOTIONAL_SOURCES):
+        return False
+    return not any(re.search(pattern, item.title) for pattern in LOW_INFORMATION_PATTERNS)
+
+
+def information_score(item: NewsItem) -> int:
+    """Prefer headlines that contain concrete changes over vague commentary."""
+    score = min(len(item.title), 80)
+    if re.search(r"\d", item.title):
+        score += 20
+    if any(word in item.title for word in ("開発", "発見", "実用化", "導入", "成功", "増加", "減少", "調達", "発表")):
+        score += 15
+    if any(word in item.title for word in ("なぜ", "話題", "最新", "ポイント", "まとめ")):
+        score -= 15
+    return score
+
+
+def spoken_headline(headline: str) -> str:
+    text = headline.replace(">", "、").replace("<", "、")
+    replacements = {"AI": "エーアイ", "NASA": "ナサ", "JAXA": "ジャクサ", "HD": "ホールディングス"}
+    for before, after in replacements.items():
+        text = text.replace(before, after)
+    return text.strip("。 ")
 
 
 def build_feed_url(query: str) -> str:
@@ -173,18 +234,13 @@ def fetch_rss(url: str) -> str:
 def build_fact(item: NewsItem) -> dict[str, str]:
     topic = short_topic(item.title)
     category = infer_category(item.title)
-    spoken_topic = tts_topic(topic, category)
+    spoken_title = spoken_headline(item.title)
+    source = item.source or "ニュース配信元"
+    context = CATEGORY_CONTEXT[category]
     title = f"今日話題の「{topic}」はここを見ると分かりやすい"
-    body = (
-        f"今日のニュースでは「{item.title}」が話題です。"
-        "新しい話題は結論だけでなく、何が変わったのか、どんな仕組みが関係するのかを見ると理解しやすくなります。"
-        "数字や公式発表も合わせて確認すると、話の流れをつかみやすいです。"
-    )
-    narration_title = spoken_topic
-    narration_body = (
-        "ニュースは見出しだけで判断せず、何が変わったのかを見ると分かりやすいです。"
-        "仕組みと公式発表を合わせて確認すると、話の流れをつかみやすくなります。"
-    )
+    body = f"{source}は、{item.title}と報じています。{context}"
+    narration_title = spoken_title
+    narration_body = f"{source}の報道です。{context}"
     return {
         "title": title,
         "body": body,
@@ -214,7 +270,7 @@ def main() -> int:
         return 0
 
     candidates = [item for item in items if is_usable(item, cutoff)]
-    candidates.sort(key=lambda item: item.published_at, reverse=True)
+    candidates.sort(key=lambda item: (information_score(item), item.published_at), reverse=True)
     if not candidates:
         LATEST_FACT.unlink(missing_ok=True)
         print("latest topic fetch skipped: no usable recent item")

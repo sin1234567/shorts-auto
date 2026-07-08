@@ -81,3 +81,15 @@ def test_is_token_revoked_error_returns_false_for_other_refresh_errors():
     exc = RefreshError("temporary failure")
 
     assert upload_youtube.is_token_revoked_error(exc) is False
+
+
+def test_sanitize_youtube_text_replaces_angle_brackets():
+    upload_youtube = load_upload_youtube_module()
+
+    assert upload_youtube.sanitize_youtube_text("7日の動意株>ウチヤマ<HD") == "7日の動意株＞ウチヤマ＜HD"
+
+
+def test_sanitize_youtube_text_removes_control_characters_but_keeps_line_breaks():
+    upload_youtube = load_upload_youtube_module()
+
+    assert upload_youtube.sanitize_youtube_text("1行目\n2行目\x00\x1f") == "1行目\n2行目"

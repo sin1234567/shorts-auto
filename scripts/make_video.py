@@ -458,7 +458,6 @@ def split_narration_line(text: str, max_chars: int = MAX_NARRATION_CHARS) -> lis
 
 def build_narration_lines(title: str, body: str, category: str) -> list[str]:
     body_lines = [segment for segment in re.split(r"(?<=[。！？])", normalize_narration_line(body)) if segment.strip()]
-    detail_line = body_lines[1].strip() if len(body_lines) > 1 else ""
     analysis_line = random.choice(CATEGORY_ANALYSIS.get(category, ANALYSIS_LINES))
     hook_builder = globals().get("build_hook_line")
     if callable(hook_builder):
@@ -479,13 +478,10 @@ def build_narration_lines(title: str, body: str, category: str) -> list[str]:
                 hook_line = f"{opener}{short_topic}の話です。"
             else:
                 hook_line = f"{opener}{cleaned_title}という話です。"
-    base_lines = [
-        hook_line,
-        body_lines[0].strip() if body_lines else normalize_narration_line(body),
-        detail_line or analysis_line,
-        "" if detail_line else analysis_line,
-        random.choice(ENDINGS),
-    ]
+    content_lines = [line.strip() for line in body_lines[:5]]
+    if not content_lines:
+        content_lines = [normalize_narration_line(body)]
+    base_lines = [hook_line, *content_lines, analysis_line, random.choice(ENDINGS)]
     normalized_lines = [normalize_narration_line(line) for line in base_lines]
     return remove_similar_lines([line for line in normalized_lines if line])
 
@@ -1013,7 +1009,7 @@ def get_media_duration(path: Path) -> float:
 
 
 def calculate_video_duration(audio_duration: float) -> float:
-    return min(35.0, audio_duration + TRAILING_BUFFER_SEC)
+    return min(60.0, audio_duration + TRAILING_BUFFER_SEC)
 
 
 def get_audio_stream_info(path: Path) -> dict[str, str]:

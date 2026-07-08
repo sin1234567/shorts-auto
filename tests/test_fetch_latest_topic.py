@@ -35,7 +35,8 @@ def test_parse_rss_and_build_fact():
     assert fact["source_url"] == "https://example.com/news"
     assert "今日話題の" in fact["title"]
     assert "エーアイ" in fact["narration_title"]
-    assert "公式発表" in fact["body"]
+    assert "研究段階なのか" in fact["body"]
+    assert "Example Newsの報道です" in fact["narration_body"]
 
 
 def test_is_usable_rejects_old_or_blocked_items():
@@ -47,3 +48,43 @@ def test_is_usable_rejects_old_or_blocked_items():
     assert latest.is_usable(latest.NewsItem("科学の新発見", "https://example.com", recent, ""), cutoff)
     assert not latest.is_usable(latest.NewsItem("科学の新発見", "https://example.com", old, ""), cutoff)
     assert not latest.is_usable(latest.NewsItem("事故で研究施設が停止", "https://example.com", recent, ""), cutoff)
+
+
+def test_is_usable_rejects_low_information_market_headline():
+    latest = load_latest_module()
+    recent = datetime.now(timezone.utc)
+    cutoff = recent - timedelta(hours=24)
+
+    assert not latest.is_usable(
+        latest.NewsItem("7日の動意株>ウチヤマHD", "https://example.com", recent, "Yahoo!ファイナンス"),
+        cutoff,
+    )
+    assert not latest.is_usable(
+        latest.NewsItem("AI教材の新機能を発表", "https://example.com", recent, "PR TIMES"),
+        cutoff,
+    )
+
+
+def test_information_score_prefers_concrete_headline():
+    latest = load_latest_module()
+    now = datetime.now(timezone.utc)
+    vague = latest.NewsItem("AIの最新動向まとめ", "https://example.com/1", now, "Example")
+    concrete = latest.NewsItem("AIロボットを2030年度に実用化、1台で壁塗りと塗装", "https://example.com/2", now, "Example")
+
+    assert latest.information_score(concrete) > latest.information_score(vague)
+
+
+def test_build_fact_uses_source_and_original_context_without_article_copy():
+    latest = load_latest_module()
+    item = latest.NewsItem(
+        "AIロボットを2030年度に実用化",
+        "https://example.com/news",
+        datetime.now(timezone.utc),
+        "Example News",
+    )
+
+    fact = latest.build_fact(item)
+
+    assert fact["narration_title"] == "エーアイロボットを2030年度に実用化"
+    assert fact["narration_body"].startswith("Example Newsの報道です。")
+    assert "利用条件" in fact["narration_body"]

@@ -30,8 +30,9 @@ def test_video_duration_tracks_audio_with_short_buffer():
     assert calculate_video_duration(0.0) == 0.5
 
 
-def test_video_duration_caps_at_35_seconds():
+def test_video_duration_caps_at_60_seconds():
     calculate_video_duration = load_calculate_video_duration()
 
     assert calculate_video_duration(34.0) == 34.5
-    assert calculate_video_duration(40.0) == 35.0
+    assert calculate_video_duration(59.8) == 60.0
+    assert calculate_video_duration(70.0) == 60.0
