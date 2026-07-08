@@ -39,13 +39,19 @@ def test_parse_rss_and_build_fact():
     assert "Example Newsの報道です" in fact["narration_body"]
 
 
+def test_clean_headline_removes_pipe_delimited_publication_name():
+    latest = load_latest_module()
+
+    assert latest.clean_headline("ロボット導入前に何をした？ ｜Seizo Trend") == "ロボット導入前に何をした？"
+
+
 def test_is_usable_rejects_old_or_blocked_items():
     latest = load_latest_module()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = datetime.now(timezone.utc)
     old = cutoff - timedelta(seconds=1)
 
-    assert latest.is_usable(latest.NewsItem("科学の新発見", "https://example.com", recent, ""), cutoff)
+    assert latest.is_usable(latest.NewsItem("科学の新発見", "https://example.com", recent, "Example News"), cutoff)
     assert not latest.is_usable(latest.NewsItem("科学の新発見", "https://example.com", old, ""), cutoff)
     assert not latest.is_usable(latest.NewsItem("事故で研究施設が停止", "https://example.com", recent, ""), cutoff)
 
@@ -61,6 +67,23 @@ def test_is_usable_rejects_low_information_market_headline():
     )
     assert not latest.is_usable(
         latest.NewsItem("AI教材の新機能を発表", "https://example.com", recent, "PR TIMES"),
+        cutoff,
+    )
+    assert not latest.is_usable(
+        latest.NewsItem("ロボット導入前に何をした？3つの準備", "https://example.com", recent, "Example News"),
+        cutoff,
+    )
+    assert not latest.is_usable(
+        latest.NewsItem("美しすぎる気象予報士のタンクトップ姿に反響", "https://example.com", recent, "Yahoo!ニュース"),
+        cutoff,
+    )
+    assert not latest.is_usable(
+        latest.NewsItem(
+            "組み込み型AIシステムオンモジュールの世界市場（2026年～2032年）、市場規模（演算能力：1未満、1～10、10～20、20～40）",
+            "https://example.com",
+            recent,
+            ".",
+        ),
         cutoff,
     )
 
@@ -88,3 +111,22 @@ def test_build_fact_uses_source_and_original_context_without_article_copy():
     assert fact["narration_title"] == "エーアイロボットを2030年度に実用化"
     assert fact["narration_body"].startswith("Example Newsの報道です。")
     assert "利用条件" in fact["narration_body"]
+
+
+def test_spoken_headline_removes_long_parenthetical_lists():
+    latest = load_latest_module()
+    headline = "AIロボットの新モデル（演算能力：1未満、1～10、10～20、20～40）を発表"
+
+    assert latest.spoken_headline(headline) == "エーアイロボットの新モデルを発表"
+
+    event_headline = "20年かけて培った設計技術を数十秒で再現 オートデスクが語るAI×CADの可能性：展示会2026"
+    assert latest.spoken_headline(event_headline).endswith("可能性")
+
+
+def test_build_fact_uses_safe_source_fallback():
+    latest = load_latest_module()
+    item = latest.NewsItem("AIロボットを開発", "https://example.com", datetime.now(timezone.utc), ".")
+
+    fact = latest.build_fact(item)
+
+    assert fact["narration_body"].startswith("ニュース配信元の報道です。")

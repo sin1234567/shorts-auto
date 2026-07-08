@@ -51,6 +51,16 @@ LOW_INFORMATION_PATTERNS = [
     r"第\d+回",
     r"開催しました",
     r"登壇・?ブース出展",
+    r"世界市場",
+    r"市場規模",
+    r"市場予測",
+    r"演算能力",
+    r"何をした[？?]",
+    r"\d+つの(?:準備|ポイント|理由)",
+    r"美しすぎ",
+    r"スタイル抜群",
+    r"タンクトップ姿",
+    r"に反響",
 ]
 
 PROMOTIONAL_SOURCES = ("PR TIMES", "アットプレス", "キャンプファイヤー")
@@ -94,6 +104,7 @@ class NewsItem:
 def clean_headline(title: str) -> str:
     title = re.sub(r"\s+", " ", title).strip()
     title = re.sub(r"\s+-\s+[^-]+$", "", title).strip()
+    title = re.sub(r"\s*[|｜]\s*[^|｜]+$", "", title).strip()
     return title.strip("「」『』")
 
 
@@ -187,7 +198,15 @@ def is_usable(item: NewsItem, cutoff: datetime) -> bool:
         return False
     if any(source.lower() in item.source.lower() for source in PROMOTIONAL_SOURCES):
         return False
+    if not valid_source_name(item.source):
+        return False
+    if len(item.title) > 100:
+        return False
     return not any(re.search(pattern, item.title) for pattern in LOW_INFORMATION_PATTERNS)
+
+
+def valid_source_name(source: str) -> bool:
+    return bool(re.search(r"[A-Za-z0-9\u3040-\u30ff\u3400-\u9fff]{2}", source.strip()))
 
 
 def information_score(item: NewsItem) -> int:
@@ -203,7 +222,16 @@ def information_score(item: NewsItem) -> int:
 
 
 def spoken_headline(headline: str) -> str:
-    text = headline.replace(">", "、").replace("<", "、")
+    text = re.sub(r"[（(][^）)]*[）)]", "", headline)
+    text = re.sub(r"\s+", " ", text).strip()
+    colon = max(text.find("："), text.find(":"))
+    if colon >= 25:
+        text = text[:colon]
+    if len(text) > 70:
+        break_points = [text.rfind(mark, 0, 70) for mark in ("。", "、", "：", ":", "｜", "|")]
+        cut = max(break_points)
+        text = text[:cut] if cut >= 30 else text[:70]
+    text = text.replace(">", "、").replace("<", "、")
     replacements = {"AI": "エーアイ", "NASA": "ナサ", "JAXA": "ジャクサ", "HD": "ホールディングス"}
     for before, after in replacements.items():
         text = text.replace(before, after)
@@ -235,7 +263,7 @@ def build_fact(item: NewsItem) -> dict[str, str]:
     topic = short_topic(item.title)
     category = infer_category(item.title)
     spoken_title = spoken_headline(item.title)
-    source = item.source or "ニュース配信元"
+    source = item.source if valid_source_name(item.source) else "ニュース配信元"
     context = CATEGORY_CONTEXT[category]
     title = f"今日話題の「{topic}」はここを見ると分かりやすい"
     body = f"{source}は、{item.title}と報じています。{context}"
