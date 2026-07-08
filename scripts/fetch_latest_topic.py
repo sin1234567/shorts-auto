@@ -61,6 +61,9 @@ LOW_INFORMATION_PATTERNS = [
     r"スタイル抜群",
     r"タンクトップ姿",
     r"に反響",
+    r"プライムデー",
+    r"\d+％OFF",
+    r"最大\d+[%％]",
 ]
 
 PROMOTIONAL_SOURCES = ("PR TIMES", "アットプレス", "キャンプファイヤー")
@@ -196,7 +199,7 @@ def is_usable(item: NewsItem, cutoff: datetime) -> bool:
     text = f"{item.title} {item.source}"
     if any(keyword in text for keyword in BLOCKED_KEYWORDS):
         return False
-    if any(source.lower() in item.source.lower() for source in PROMOTIONAL_SOURCES):
+    if any(source.lower() in text.lower() for source in PROMOTIONAL_SOURCES):
         return False
     if not valid_source_name(item.source):
         return False
@@ -282,6 +285,38 @@ def build_fact(item: NewsItem) -> dict[str, str]:
     }
 
 
+def fact_quality_issues(fact: dict[str, str]) -> list[str]:
+    """Return reasons why generated copy should not be published."""
+    issues: list[str] = []
+    spoken_title = fact.get("narration_title", "").strip()
+    narration_body = fact.get("narration_body", "").strip()
+    source = fact.get("source_name", "").strip()
+
+    if not 10 <= len(spoken_title) <= 70:
+        issues.append("narrationTitleLength")
+    if not 120 <= len(narration_body) <= 400:
+        issues.append("narrationBodyLength")
+    if not valid_source_name(source):
+        issues.append("invalidSource")
+    if len(re.findall(r"\d+(?:[.,]\d+)?", spoken_title)) >= 5:
+        issues.append("numericList")
+    if re.search(r"\(\s*\)|（\s*）|[、,:：|｜]$|[!?！？。]{3,}", spoken_title):
+        issues.append("brokenPunctuation")
+    if "ニュース配信元の報道です" in narration_body:
+        issues.append("fallbackSource")
+    return issues
+
+
+def select_quality_fact(candidates: list[NewsItem]) -> dict[str, str] | None:
+    for item in candidates:
+        fact = build_fact(item)
+        issues = fact_quality_issues(fact)
+        if not issues:
+            return fact
+        print(f"latest topic rejected: {','.join(issues)} source={item.title}", file=sys.stderr)
+    return None
+
+
 def main() -> int:
     OUT.mkdir(exist_ok=True)
     query = os.environ.get("LATEST_TOPIC_QUERY", DEFAULT_QUERY).strip() or DEFAULT_QUERY
@@ -304,7 +339,11 @@ def main() -> int:
         print("latest topic fetch skipped: no usable recent item")
         return 0
 
-    fact = build_fact(candidates[0])
+    fact = select_quality_fact(candidates)
+    if fact is None:
+        LATEST_FACT.unlink(missing_ok=True)
+        print("latest topic fetch skipped: all candidates failed quality checks", file=sys.stderr)
+        return 0
     with open(LATEST_FACT, "w", encoding="utf-8") as f:
         json.dump(fact, f, ensure_ascii=False, indent=2)
 

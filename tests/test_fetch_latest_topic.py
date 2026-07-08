@@ -78,6 +78,10 @@ def test_is_usable_rejects_low_information_market_headline():
         cutoff,
     )
     assert not latest.is_usable(
+        latest.NewsItem("AI対応SSDを最大20％OFFで提供（PR TIMES）", "https://example.com", recent, "Yahoo!ニュース"),
+        cutoff,
+    )
+    assert not latest.is_usable(
         latest.NewsItem(
             "組み込み型AIシステムオンモジュールの世界市場（2026年～2032年）、市場規模（演算能力：1未満、1～10、10～20、20～40）",
             "https://example.com",
@@ -130,3 +134,32 @@ def test_build_fact_uses_safe_source_fallback():
     fact = latest.build_fact(item)
 
     assert fact["narration_body"].startswith("ニュース配信元の報道です。")
+
+
+def test_fact_quality_issues_rejects_numeric_lists_and_bad_source():
+    latest = load_latest_module()
+    item = latest.NewsItem(
+        "AI市場 1、2、3、4、5、6",
+        "https://example.com",
+        datetime.now(timezone.utc),
+        ".",
+    )
+
+    issues = latest.fact_quality_issues(latest.build_fact(item))
+
+    assert "numericList" in issues
+    assert "invalidSource" in issues
+    assert "fallbackSource" in issues
+
+
+def test_select_quality_fact_falls_back_to_next_candidate():
+    latest = load_latest_module()
+    now = datetime.now(timezone.utc)
+    bad = latest.NewsItem("AI市場 1、2、3、4、5、6", "https://example.com/bad", now, "Example News")
+    good = latest.NewsItem("AIロボットを2030年度に実用化", "https://example.com/good", now, "Example News")
+
+    fact = latest.select_quality_fact([bad, good])
+
+    assert fact is not None
+    assert fact["source_url"] == "https://example.com/good"
+    assert latest.fact_quality_issues(fact) == []
